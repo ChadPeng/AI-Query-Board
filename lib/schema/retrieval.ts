@@ -114,10 +114,15 @@ export async function resolveSchemaForQuestion(
   // in the user table) and are injected again at stage-2.
   const alwaysRules = await getAlwaysInjectedRules();
 
-  const candidates = catalog.map((c) => ({
-    table: qualifiedName(c.schema, c.table),
-    description: c.description,
-  }));
+  // Excluded tables (log/scratch/unused) never enter stage-1 selection nor
+  // graph-connect — dropping them from the known set is enough to keep them
+  // out of the whole pipeline.
+  const candidates = catalog
+    .filter((c) => !c.excluded)
+    .map((c) => ({
+      table: qualifiedName(c.schema, c.table),
+      description: c.description,
+    }));
 
   // Stage 1: pick relevant tables, keeping only ids that really exist in the
   // catalog (defend against the model inventing a table name). Weaker/free

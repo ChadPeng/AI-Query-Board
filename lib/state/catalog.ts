@@ -6,6 +6,8 @@ export interface CatalogEntry {
   table: string;
   description: string;
   reviewed: boolean;
+  /** True = hidden from stage-1 selection and graph-connect (log/scratch/unused tables). */
+  excluded: boolean;
 }
 
 /**
@@ -18,13 +20,14 @@ export async function getCatalog(): Promise<CatalogEntry[]> {
   if (!pool) return [];
   try {
     const [rows] = (await pool.query(
-      "SELECT schema_name, table_name, description, reviewed FROM table_catalog ORDER BY reviewed ASC, schema_name, table_name",
+      "SELECT schema_name, table_name, description, reviewed, excluded FROM table_catalog ORDER BY reviewed ASC, schema_name, table_name",
     )) as [RowDataPacket[], unknown];
     return rows.map((r) => ({
       schema: String(r.schema_name),
       table: String(r.table_name),
       description: String(r.description),
       reviewed: Boolean(r.reviewed),
+      excluded: Boolean(r.excluded),
     }));
   } catch {
     // Table doesn't exist yet (ER_NO_SUCH_TABLE) — treat as empty catalog.
@@ -53,17 +56,18 @@ export async function upsertCatalogEntry(
   );
 }
 
-/** Edit a catalog entry from the management UI (description and/or review state). */
+/** Edit a catalog entry from the management UI (description, review state, and exclusion). */
 export async function updateCatalogEntry(
   schema: string,
   table: string,
   description: string,
   reviewed: boolean,
+  excluded: boolean,
 ): Promise<void> {
   const pool = statePool();
   if (!pool) throw new Error("狀態資料庫未設定（STATE_DB_* 環境變數）");
   await pool.query(
-    "UPDATE table_catalog SET description = ?, reviewed = ? WHERE schema_name = ? AND table_name = ?",
-    [description, reviewed ? 1 : 0, schema, table],
+    "UPDATE table_catalog SET description = ?, reviewed = ?, excluded = ? WHERE schema_name = ? AND table_name = ?",
+    [description, reviewed ? 1 : 0, excluded ? 1 : 0, schema, table],
   );
 }

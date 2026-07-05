@@ -27,7 +27,9 @@ export async function learnFromSql(sql: string): Promise<LearnSummary> {
   if (!sql.trim()) throw new Error("請貼上至少一段 SQL");
 
   const catalog = await getCatalog();
-  const known = new Set(catalog.map((c) => qualifiedName(c.schema, c.table)));
+  const known = new Set(
+    catalog.filter((c) => !c.excluded).map((c) => qualifiedName(c.schema, c.table)),
+  );
   const provider = createProvider();
 
   const proposed = await provider.learnFromSql({

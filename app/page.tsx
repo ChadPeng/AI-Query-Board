@@ -7,7 +7,6 @@ import GridLayout, { WidthProvider, type Layout } from "react-grid-layout";
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
 import { Chart } from "./components/Chart";
-import { ThemeToggle } from "./components/ThemeToggle";
 import type { ChartSpec, EngineResult, PinnedChart } from "@/lib/llm/types";
 
 const Grid = WidthProvider(GridLayout);
@@ -201,10 +200,12 @@ export default function Home() {
     <main className="layout">
       {/* Left: accumulating dashboard */}
       <section className="charts">
-        <h1>儀表板</h1>
+        <h1 className="cyber-glitch" data-text="儀表板">
+          儀表板<span className="cyber-cursor">_</span>
+        </h1>
 
         {preview && (
-          <div className="chart-card preview">
+          <div className="chart-card preview cyber-holographic">
             <div className="card-bar">
               <span className="badge">最新結果（未釘選）</span>
               <button type="button" className="pin" onClick={pin}>
@@ -278,7 +279,14 @@ export default function Home() {
       {/* Right: AI chat */}
       <aside className="chat">
         <div className="chat-header">
-          <span className="who">{session?.user?.email ?? ""}</span>
+          <span className="who">
+            <span className="cyber-terminal-dots" aria-hidden="true">
+              <span className="cyber-dot red" />
+              <span className="cyber-dot yellow" />
+              <span className="cyber-dot green" />
+            </span>
+            {session?.user?.email ?? ""}
+          </span>
           <span className="header-actions">
             <Link href="/knowledge" className="link-btn">
               語意層
@@ -293,7 +301,6 @@ export default function Home() {
             >
               登出
             </button>
-            <ThemeToggle />
           </span>
         </div>
         <div className="chat-log">
@@ -308,12 +315,15 @@ export default function Home() {
           {busy && <div className="msg bot">思考中…</div>}
         </div>
         <form className="chat-input" onSubmit={send}>
-          <input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="問一個數據問題…"
-            disabled={busy}
-          />
+          <div className="cyber-input-wrap">
+            <span className="cyber-input-prefix">&gt;</span>
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="問一個數據問題…"
+              disabled={busy}
+            />
+          </div>
           <button type="submit" disabled={busy || !input.trim()}>
             {busy ? "…" : "送出"}
           </button>

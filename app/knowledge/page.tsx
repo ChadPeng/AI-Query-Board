@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ThemeToggle } from "../components/ThemeToggle";
 import type { CatalogEntry } from "@/lib/state/catalog";
 import type { SemanticRule } from "@/lib/state/semanticRules";
 import type { Relationship } from "@/lib/state/relationships";
@@ -55,12 +54,13 @@ export default function KnowledgePage() {
   return (
     <main className="knowledge">
       <div className="kn-top">
-        <h1>語意層</h1>
+        <h1 className="cyber-glitch" data-text="語意層">
+          語意層
+        </h1>
         <span className="header-actions">
           <Link href="/" className="link-btn">
             ← 回儀表板
           </Link>
-          <ThemeToggle />
         </span>
       </div>
       <p className="kn-sub">

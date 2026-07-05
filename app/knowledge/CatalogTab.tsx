@@ -22,21 +22,36 @@ function CatalogRow({ entry, onChanged }: { entry: CatalogEntry; onChanged: () =
 
   async function save(reviewed: boolean) {
     setBusy(true); setErr(null);
-    const e = await patch({ schema: entry.schema, table: entry.table, description, reviewed });
+    const e = await patch({ schema: entry.schema, table: entry.table, description, reviewed, excluded: entry.excluded });
     setBusy(false);
     if (e) { setErr(e); return; }
     setEditing(false);
     onChanged();
   }
 
+  async function toggleExcluded() {
+    setBusy(true); setErr(null);
+    const e = await patch({
+      schema: entry.schema,
+      table: entry.table,
+      description: entry.description,
+      reviewed: entry.reviewed,
+      excluded: !entry.excluded,
+    });
+    setBusy(false);
+    if (e) { setErr(e); return; }
+    onChanged();
+  }
+
   return (
-    <div className={`kn-row ${entry.reviewed ? "" : "unreviewed"}`}>
+    <div className={`kn-row ${entry.reviewed ? "" : "unreviewed"} ${entry.excluded ? "excluded" : ""}`}>
       <div className="kn-main">
         <div className="kn-line">
           <code>{entry.schema}.{entry.table}</code>
           <span className={`status-chip ${entry.reviewed ? "reviewed" : "unreviewed"}`}>
             {entry.reviewed ? "已確認" : "未確認"}
           </span>
+          {entry.excluded && <span className="status-chip excluded">已排除</span>}
         </div>
         {editing ? (
           <textarea className="kn-textarea" value={description} onChange={(e) => setDescription(e.target.value)} />
@@ -57,6 +72,9 @@ function CatalogRow({ entry, onChanged }: { entry: CatalogEntry; onChanged: () =
               <button className="btn btn-primary" disabled={busy} onClick={() => save(true)}>確認</button>
             )}
             <button className="btn" disabled={busy} onClick={() => setEditing(true)}>編輯</button>
+            <button className="btn btn-danger" disabled={busy} onClick={toggleExcluded}>
+              {entry.excluded ? "取消排除" : "排除"}
+            </button>
           </>
         )}
       </div>
@@ -65,13 +83,27 @@ function CatalogRow({ entry, onChanged }: { entry: CatalogEntry; onChanged: () =
 }
 
 export function CatalogTab({ catalog, onChanged }: { catalog: CatalogEntry[]; onChanged: () => void }) {
+  const [hideExcluded, setHideExcluded] = useState(false);
+  const excludedCount = catalog.filter((c) => c.excluded).length;
+  const visible = hideExcluded ? catalog.filter((c) => !c.excluded) : catalog;
+
   return (
     <div>
       {catalog.length === 0 && (
         <div className="kn-empty">表目錄是空的。先跑 <code>npm run bootstrap:catalog</code> 產生每張表的描述。</div>
       )}
+      {catalog.length > 0 && (
+        <label className="kn-filter">
+          <input
+            type="checkbox"
+            checked={hideExcluded}
+            onChange={(e) => setHideExcluded(e.target.checked)}
+          />
+          隱藏已排除的表{excludedCount ? `（${excludedCount} 個已排除）` : ""}
+        </label>
+      )}
       <div className="kn-list">
-        {catalog.map((c) => (
+        {visible.map((c) => (
           <CatalogRow key={`${c.schema}.${c.table}`} entry={c} onChanged={onChanged} />
         ))}
       </div>

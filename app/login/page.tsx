@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
-import { ThemeToggle } from "../components/ThemeToggle";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -52,34 +51,42 @@ export default function LoginPage() {
 
   return (
     <main className="auth-page">
-      <span className="auth-theme-toggle">
-        <ThemeToggle />
-      </span>
-      <form className="auth-card" onSubmit={submit}>
-        <h1>AI 數據儀表板</h1>
+      <form className="auth-card cyber-chamfer" onSubmit={submit}>
+        <h1 className="cyber-glitch" data-text="AI 數據儀表板">
+          AI 數據儀表板
+        </h1>
         <p className="auth-sub">{mode === "login" ? "登入以繼續" : "建立新帳號"}</p>
 
         {mode === "register" && (
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="名稱（選填）"
-          />
+          <div className="cyber-input-wrap">
+            <span className="cyber-input-prefix">&gt;</span>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="名稱（選填）"
+            />
+          </div>
         )}
-        <input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="email"
-          required
-        />
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="密碼（至少 8 字元）"
-          required
-        />
+        <div className="cyber-input-wrap">
+          <span className="cyber-input-prefix">&gt;</span>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="email"
+            required
+          />
+        </div>
+        <div className="cyber-input-wrap">
+          <span className="cyber-input-prefix">&gt;</span>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="密碼（至少 8 字元）"
+            required
+          />
+        </div>
 
         {error && <div className="auth-error">{error}</div>}
 

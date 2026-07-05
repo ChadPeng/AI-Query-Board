@@ -45,8 +45,19 @@ export function LearnFromSqlPanel({ onLearned }: { onLearned: () => void }) {
   }
 
   return (
-    <details className="learn-panel" open={open} onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}>
-      <summary>從 SQL 學習規則</summary>
+    <details
+      className="learn-panel cyber-chamfer"
+      open={open}
+      onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}
+    >
+      <summary>
+        <span className="cyber-terminal-dots" aria-hidden="true">
+          <span className="cyber-dot red" />
+          <span className="cyber-dot yellow" />
+          <span className="cyber-dot green" />
+        </span>
+        從 SQL 學習規則
+      </summary>
       <p className="kn-note">
         貼上你平常在用的 SQL，AI 會從 JOIN 抽出表關係、從 WHERE 抽出代碼/過濾/術語規則，全部存成草稿（未確認）等你到下方分頁校對。
       </p>

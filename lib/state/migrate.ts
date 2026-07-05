@@ -141,6 +141,10 @@ const COLUMN_ADDITIONS: { table: string; column: string; clause: string }[] = [
   { table: "pinned_charts", column: "y", clause: "ADD COLUMN y INT NOT NULL DEFAULT 0" },
   { table: "pinned_charts", column: "w", clause: "ADD COLUMN w INT NOT NULL DEFAULT 6" },
   { table: "pinned_charts", column: "h", clause: "ADD COLUMN h INT NOT NULL DEFAULT 8" },
+  // slice 16 — exclude a cataloged table from retrieval (log/scratch/unused
+  // tables that shouldn't be picked by stage-1 selection or graph-connect).
+  // Doesn't remove the entry — just hides it from the query pipeline.
+  { table: "table_catalog", column: "excluded", clause: "ADD COLUMN excluded TINYINT(1) NOT NULL DEFAULT 0" },
 ];
 
 async function columnExists(pool: Pool, table: string, column: string): Promise<boolean> {

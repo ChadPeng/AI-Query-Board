@@ -26,7 +26,7 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: "描述不可為空" }, { status: 400 });
   }
   try {
-    await updateCatalogEntry(schema, table, description, Boolean(body.reviewed));
+    await updateCatalogEntry(schema, table, description, Boolean(body.reviewed), Boolean(body.excluded));
     return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json(
