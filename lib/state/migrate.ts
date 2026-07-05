@@ -153,12 +153,109 @@ async function columnExists(pool: Pool, table: string, column: string): Promise<
   return rows.length > 0;
 }
 
+async function getColumnType(pool: Pool, table: string, column: string): Promise<string | null> {
+  const [rows] = (await pool.query(
+    `SELECT COLUMN_TYPE FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?
+      LIMIT 1`,
+    [table, column],
+  )) as [{ COLUMN_TYPE: string }[], unknown];
+  return rows.length > 0 ? rows[0].COLUMN_TYPE : null;
+}
+
+/**
+ * Column modifications for existing tables. Checks current column type before
+ * applying MODIFY to avoid unnecessary alterations.
+ */
+const COLUMN_MODIFICATIONS: { table: string; column: string; expectedType: string; clause: string }[] = [
+  // Fix for Error 1071: Specified key was too long. Reduce VARCHAR lengths for
+  // columns in unique indexes to fit utf8mb4 3072 byte limit.
+  { 
+    table: "saved_query", 
+    column: "question_norm", 
+    expectedType: "varchar(191)",
+    clause: "MODIFY COLUMN question_norm VARCHAR(191) NOT NULL" 
+  },
+  { 
+    table: "relationship", 
+    column: "from_schema", 
+    expectedType: "varchar(64)",
+    clause: "MODIFY COLUMN from_schema VARCHAR(64) NOT NULL" 
+  },
+  { 
+    table: "relationship", 
+    column: "from_table", 
+    expectedType: "varchar(64)",
+    clause: "MODIFY COLUMN from_table VARCHAR(64) NOT NULL" 
+  },
+  { 
+    table: "relationship", 
+    column: "from_column", 
+    expectedType: "varchar(64)",
+    clause: "MODIFY COLUMN from_column VARCHAR(64) NOT NULL" 
+  },
+  { 
+    table: "relationship", 
+    column: "to_schema", 
+    expectedType: "varchar(64)",
+    clause: "MODIFY COLUMN to_schema VARCHAR(64) NOT NULL" 
+  },
+  { 
+    table: "relationship", 
+    column: "to_table", 
+    expectedType: "varchar(64)",
+    clause: "MODIFY COLUMN to_table VARCHAR(64) NOT NULL" 
+  },
+  { 
+    table: "relationship", 
+    column: "to_column", 
+    expectedType: "varchar(64)",
+    clause: "MODIFY COLUMN to_column VARCHAR(64) NOT NULL" 
+  },
+  { 
+    table: "table_catalog", 
+    column: "schema_name", 
+    expectedType: "varchar(64)",
+    clause: "MODIFY COLUMN schema_name VARCHAR(64) NOT NULL" 
+  },
+  { 
+    table: "table_catalog", 
+    column: "table_name", 
+    expectedType: "varchar(64)",
+    clause: "MODIFY COLUMN table_name VARCHAR(64) NOT NULL" 
+  },
+  { 
+    table: "semantic_rule", 
+    column: "term_name", 
+    expectedType: "varchar(64)",
+    clause: "MODIFY COLUMN term_name VARCHAR(64) NULL" 
+  },
+  { 
+    table: "semantic_rule", 
+    column: "schema_name", 
+    expectedType: "varchar(64)",
+    clause: "MODIFY COLUMN schema_name VARCHAR(64) NULL" 
+  },
+  { 
+    table: "semantic_rule", 
+    column: "table_name", 
+    expectedType: "varchar(64)",
+    clause: "MODIFY COLUMN table_name VARCHAR(64) NULL" 
+  },
+];
+
 export async function runStateMigrations(pool: Pool): Promise<void> {
   for (const sql of STATE_MIGRATIONS) {
     await pool.query(sql);
   }
   for (const { table, column, clause } of COLUMN_ADDITIONS) {
     if (!(await columnExists(pool, table, column))) {
+      await pool.query(`ALTER TABLE ${table} ${clause}`);
+    }
+  }
+  for (const { table, column, expectedType, clause } of COLUMN_MODIFICATIONS) {
+    const currentType = await getColumnType(pool, table, column);
+    if (currentType && currentType !== expectedType) {
       await pool.query(`ALTER TABLE ${table} ${clause}`);
     }
   }
