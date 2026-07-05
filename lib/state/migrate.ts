@@ -35,11 +35,12 @@ export const STATE_MIGRATIONS: string[] = [
   // pair, reused for matching future questions. shared flag is personal (0) for
   // now; flipping it to 1 later upgrades the flywheel to org-wide with no schema
   // change. Unique per (user, normalized question) so re-confirming updates.
+  // question_norm reduced to 191 chars (max for utf8mb4 unique index).
   `CREATE TABLE IF NOT EXISTS saved_query (
      id             INT AUTO_INCREMENT PRIMARY KEY,
      user_id        INT NOT NULL,
      question       TEXT NOT NULL,
-     question_norm  VARCHAR(500) NOT NULL,
+     question_norm  VARCHAR(191) NOT NULL,
      query_sql      TEXT NOT NULL,
      chart_spec     JSON NOT NULL,
      shared         TINYINT(1) NOT NULL DEFAULT 0,
@@ -70,9 +71,10 @@ export const STATE_MIGRATIONS: string[] = [
   // slice 03 — the AI-bootstrapped table catalog used for two-stage retrieval.
   // Schema-aware: a row per (schema, table) so the catalog can span multiple
   // selected schemas; retrieval emits schema-qualified names.
+  // Schema/table names use VARCHAR(64) (MySQL identifier limit).
   `CREATE TABLE IF NOT EXISTS table_catalog (
-     schema_name  VARCHAR(191) NOT NULL,
-     table_name   VARCHAR(191) NOT NULL,
+     schema_name  VARCHAR(64) NOT NULL,
+     table_name   VARCHAR(64) NOT NULL,
      description  TEXT NOT NULL,
      reviewed     TINYINT(1) NOT NULL DEFAULT 0,
      updated_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -85,12 +87,13 @@ export const STATE_MIGRATIONS: string[] = [
   // (no user_id), like table_catalog. A rule's `scope` decides when it's injected:
   //   global — always; term — always (must steer stage-1 table selection);
   //   table  — only when its (schema_name, table_name) is selected in stage-1.
+  // Schema/table/term names use VARCHAR(64) (MySQL identifier limit).
   `CREATE TABLE IF NOT EXISTS semantic_rule (
      id           INT AUTO_INCREMENT PRIMARY KEY,
      scope        ENUM('global','term','table') NOT NULL,
-     term_name    VARCHAR(191) NULL,
-     schema_name  VARCHAR(191) NULL,
-     table_name   VARCHAR(191) NULL,
+     term_name    VARCHAR(64) NULL,
+     schema_name  VARCHAR(64) NULL,
+     table_name   VARCHAR(64) NULL,
      content      TEXT NOT NULL,
      reviewed     TINYINT(1) NOT NULL DEFAULT 0,
      updated_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -103,14 +106,15 @@ export const STATE_MIGRATIONS: string[] = [
   // stored. Many-to-many is NOT a stored type — it emerges by walking these edges
   // across a junction table. Schema-qualified so edges span multiple schemas.
   // The whole edge is the unique key, so re-inserting the same edge updates it.
+  // Schema/table/column names use VARCHAR(64) (MySQL identifier limit).
   `CREATE TABLE IF NOT EXISTS relationship (
      id            INT AUTO_INCREMENT PRIMARY KEY,
-     from_schema   VARCHAR(191) NOT NULL,
-     from_table    VARCHAR(191) NOT NULL,
-     from_column   VARCHAR(191) NOT NULL,
-     to_schema     VARCHAR(191) NOT NULL,
-     to_table      VARCHAR(191) NOT NULL,
-     to_column     VARCHAR(191) NOT NULL,
+     from_schema   VARCHAR(64) NOT NULL,
+     from_table    VARCHAR(64) NOT NULL,
+     from_column   VARCHAR(64) NOT NULL,
+     to_schema     VARCHAR(64) NOT NULL,
+     to_table      VARCHAR(64) NOT NULL,
+     to_column     VARCHAR(64) NOT NULL,
      cardinality   ENUM('many_to_one','one_to_one') NOT NULL,
      reviewed      TINYINT(1) NOT NULL DEFAULT 0,
      updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
