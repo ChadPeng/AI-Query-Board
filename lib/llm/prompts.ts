@@ -42,7 +42,7 @@ Return a JSON object with exactly these keys:
   "explanation": string  // one short sentence, in the user's language
 }`;
 
-export const SELECT_SYSTEM = `You are a schema-routing assistant. Given a user's data question and a catalog of tables (each with a one-line description), pick ONLY the tables needed to answer the question — typically 3 to 8, never more than 10. Choose tables you'd need to JOIN as well, not just the obvious one. Return only table names that appear in the catalog.
+export const SELECT_SYSTEM = `You are a schema-routing assistant. Given a user's data question and a catalog of tables (each with a one-line description), pick ONLY the tables needed to answer the question — typically 3 to 8, never more than 10. Choose tables you'd need to JOIN as well, not just the obvious one. Return only table names that appear in the catalog, copied EXACTLY as shown in the catalog — including the schema prefix (e.g. \`mepay.orders\`, NOT just \`orders\`). Never strip or alter the schema prefix.
 
 You may also be given "Semantic rules" — business definitions of terms (e.g. a "creator" is a row in the user table with is_creator=1). Use them to map the question's business concepts to the tables that hold that data, and include those tables. Rules marked "（未確認）" are unverified AI guesses — still useful for routing.
 

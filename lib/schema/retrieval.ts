@@ -34,6 +34,34 @@ export interface ResolvedSchema {
   disconnectedPairs: [string, string][];
 }
 
+/**
+ * Map a raw table name returned by stage-1 selection to its exact
+ * schema-qualified catalog entry. Handles a common weak-model failure mode:
+ * dropping the schema prefix (e.g. returning "orders" instead of
+ * "mepay.orders") despite the prompt instructing otherwise. Falls back to
+ * matching by the unqualified table name, but only when it's unambiguous
+ * (a single catalog table with that name) — otherwise the guess is unsafe
+ * and the table is dropped.
+ */
+function resolvePickedTable(
+  raw: string,
+  candidates: { table: string }[],
+  known: Set<string>,
+): string | null {
+  const cleaned = raw.replace(/[`"']/g, "").trim();
+  if (known.has(cleaned)) return cleaned;
+
+  const unqualified = cleaned.includes(".")
+    ? cleaned.slice(cleaned.lastIndexOf(".") + 1)
+    : cleaned;
+  const matches = candidates.filter((c) => {
+    const idx = c.table.lastIndexOf(".");
+    const name = idx >= 0 ? c.table.slice(idx + 1) : c.table;
+    return name.toLowerCase() === unqualified.toLowerCase();
+  });
+  return matches.length === 1 ? matches[0].table : null;
+}
+
 function toInjectedRule(r: SemanticRule): InjectedRule {
   return {
     scope: r.scope,
@@ -92,15 +120,23 @@ export async function resolveSchemaForQuestion(
   }));
 
   // Stage 1: pick relevant tables, keeping only ids that really exist in the
-  // catalog (defend against the model inventing a table name).
+  // catalog (defend against the model inventing a table name). Weaker/free
+  // models sometimes drop the schema prefix (e.g. "orders" instead of
+  // "mepay.orders") despite the prompt instructing otherwise — fall back to
+  // matching by the unqualified table name when it's unambiguous.
   const known = new Set(candidates.map((c) => c.table));
-  const picked = (
-    await provider.selectTables({
-      question,
-      catalog: candidates,
-      rules: alwaysRules.map(toInjectedRule),
-    })
-  ).filter((t) => known.has(t));
+  const rawPicked = await provider.selectTables({
+    question,
+    catalog: candidates,
+    rules: alwaysRules.map(toInjectedRule),
+  });
+  const picked = Array.from(
+    new Set(
+      rawPicked
+        .map((t) => resolvePickedTable(t, candidates, known))
+        .filter((t): t is string => t != null),
+    ),
+  );
 
   if (picked.length === 0) {
     throw new NoRelevantTablesError();
