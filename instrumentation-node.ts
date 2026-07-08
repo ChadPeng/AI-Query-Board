@@ -38,23 +38,5 @@ export async function verifyAtStartup() {
   } catch (e) {
     const msg = e instanceof Error ? `${e.message}\n${e.stack ?? ""}` : String(e);
     console.error(`[db] startup verification failed (non-fatal): ${msg}`);
-    // [DEBUG-r7q3] best-effort: persist the startup error so it can be read
-    // without Vercel log access. Remove once the reports/run 500 is diagnosed.
-    try {
-      const { statePool } = await import("./lib/db");
-      const p = statePool();
-      if (p) {
-        await p.query(
-          `CREATE TABLE IF NOT EXISTS debug_startup_error (
-             id INT AUTO_INCREMENT PRIMARY KEY,
-             message TEXT NOT NULL,
-             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-           ) CHARACTER SET utf8mb4`,
-        );
-        await p.query("INSERT INTO debug_startup_error (message) VALUES (?)", [msg.slice(0, 60000)]);
-      }
-    } catch {
-      /* the sink itself failed — console.error above is the fallback */
-    }
   }
 }
