@@ -43,16 +43,16 @@ async function testQuery() {
   console.log(schema.ddl.substring(0, 500) + '...');
   
   console.log('\n=== 第二階段：SQL 生成 ===');
-  const result = await provider.generateSql({
+  const result = await provider.generateSqlAndChart({
     question,
-    ddl: schema.ddl,
+    schemaDDL: schema.ddl,
     rules: schema.rules,
     relationships: schema.relationships,
   });
-  
+
   console.log('生成的 SQL:');
   console.log(result.sql);
-  console.log('\n圖表類型:', result.chartSpec.chartType);
+  console.log('\n圖表類型:', result.chart_spec.chart_type);
   console.log('說明:', result.explanation);
 }
 

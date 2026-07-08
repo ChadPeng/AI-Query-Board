@@ -1,8 +1,14 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import * as echarts from "echarts";
 import type { ChartSpec } from "@/lib/llm/types";
+
+/** Imperative handle: lets a parent export the rendered chart as a PNG data URL. */
+export interface ChartHandle {
+  /** PNG data URL of the current chart, or null for a table (nothing to render). */
+  toPng: () => string | null;
+}
 
 type Row = Record<string, unknown>;
 
@@ -113,32 +119,41 @@ function DataTable({ columns, rows }: { columns: string[]; rows: Row[] }) {
   );
 }
 
-export function Chart({
-  spec,
-  columns,
-  rows,
-}: {
-  spec: ChartSpec;
-  columns: string[];
-  rows: Row[];
-}) {
-  const ref = useRef<HTMLDivElement>(null);
+export const Chart = forwardRef<
+  ChartHandle,
+  { spec: ChartSpec; columns: string[]; rows: Row[] }
+>(function Chart({ spec, columns, rows }, ref) {
+  const el = useRef<HTMLDivElement>(null);
+  const inst = useRef<echarts.ECharts | null>(null);
 
   useEffect(() => {
-    if (spec.chart_type === "table" || !ref.current) return;
-    const chart = echarts.init(ref.current);
+    if (spec.chart_type === "table" || !el.current) return;
+    const chart = echarts.init(el.current);
+    inst.current = chart;
     chart.setOption(buildOption(spec, rows));
     // Resize with the grid cell (drag-resize) as well as the window.
     const ro = new ResizeObserver(() => chart.resize());
-    ro.observe(ref.current);
+    ro.observe(el.current);
     return () => {
       ro.disconnect();
       chart.dispose();
+      inst.current = null;
     };
   }, [spec, rows]);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      toPng: () =>
+        inst.current
+          ? inst.current.getDataURL({ type: "png", pixelRatio: 2, backgroundColor: "#0d0d17" })
+          : null,
+    }),
+    [],
+  );
 
   if (spec.chart_type === "table") {
     return <DataTable columns={columns} rows={rows} />;
   }
-  return <div ref={ref} className="chart-canvas" style={{ width: "100%" }} />;
-}
+  return <div ref={el} className="chart-canvas" style={{ width: "100%" }} />;
+});

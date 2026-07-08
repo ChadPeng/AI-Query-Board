@@ -2,6 +2,8 @@ import type { LLMProvider } from "./provider";
 import { ClaudeProvider } from "./claude";
 import { GeminiProvider } from "./gemini";
 import { OpenAICompatibleProvider } from "./openaiCompat";
+import type { ProviderConfig } from "../settings/config";
+import { resolveProviderConfig } from "../settings/config";
 
 export type ProviderName = "claude" | "gemini" | "groq" | "ollama" | "openai-compat";
 
@@ -39,6 +41,63 @@ export function createProvider(): LLMProvider {
     default:
       return new ClaudeProvider();
   }
+}
+
+/** Build a provider from a resolved Settings config (docs/adr/0005). */
+export function createProviderFromConfig(cfg: ProviderConfig): LLMProvider {
+  switch (cfg.provider) {
+    case "gemini":
+      return new GeminiProvider({ apiKey: cfg.geminiKey, model: cfg.geminiModel });
+    case "groq":
+      return new OpenAICompatibleProvider({
+        baseUrl: "https://api.groq.com/openai/v1",
+        apiKey: cfg.groqKey,
+        model: cfg.groqModel || "llama-3.3-70b-versatile",
+      });
+    case "ollama":
+      return new OpenAICompatibleProvider({
+        baseUrl: cfg.ollamaBaseUrl || "http://localhost:11434/v1",
+        apiKey: "ollama",
+        model: cfg.ollamaModel || "qwen2.5-coder:7b",
+      });
+    case "openai-compat":
+      return new OpenAICompatibleProvider({
+        baseUrl: cfg.openaiBaseUrl,
+        apiKey: cfg.openaiKey,
+        model: cfg.openaiModel,
+      });
+    default:
+      return new ClaudeProvider({ apiKey: cfg.anthropicKey, model: cfg.anthropicModel });
+  }
+}
+
+/** A user-facing error if `cfg`'s active provider lacks its key, else null. */
+export function missingProviderKeyForConfig(cfg: ProviderConfig): string | null {
+  switch (cfg.provider) {
+    case "gemini":
+      return cfg.geminiKey ? null : "未設定 Gemini 金鑰（LLM 供應商=gemini）";
+    case "groq":
+      return cfg.groqKey ? null : "未設定 Groq 金鑰（LLM 供應商=groq）";
+    case "ollama":
+      return null;
+    case "openai-compat":
+      return cfg.openaiBaseUrl ? null : "未設定 OpenAI 相容 Base URL";
+    default:
+      return cfg.anthropicKey ? null : "未設定 Anthropic 金鑰";
+  }
+}
+
+// Cache the active provider; rebuild only when the resolved config changes so a
+// Super-Admin can switch provider/key/model at runtime without a restart.
+let activeProvider: { sig: string; provider: LLMProvider } | null = null;
+
+export async function getActiveProvider(): Promise<{ provider: LLMProvider; missingKey: string | null }> {
+  const cfg = await resolveProviderConfig();
+  const sig = JSON.stringify(cfg);
+  if (!activeProvider || activeProvider.sig !== sig) {
+    activeProvider = { sig, provider: createProviderFromConfig(cfg) };
+  }
+  return { provider: activeProvider.provider, missingKey: missingProviderKeyForConfig(cfg) };
 }
 
 /**

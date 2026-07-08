@@ -122,6 +122,34 @@ export const STATE_MIGRATIONS: string[] = [
      UNIQUE KEY uq_edge (from_schema, from_table, from_column,
                          to_schema, to_table, to_column)
    ) CHARACTER SET utf8mb4`,
+
+  // reports-and-admin 02 — runtime-editable Settings (docs/adr/0005). A row is a
+  // Super-Admin override; absent → the app falls back to the .env value then the
+  // built-in default. Key is a dotted string; value is stored as text and coerced
+  // per the setting's declared type at read time.
+  `CREATE TABLE IF NOT EXISTS setting (
+     setting_key    VARCHAR(191) PRIMARY KEY,
+     setting_value  TEXT NULL,
+     updated_by     INT NULL,
+     updated_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                      ON UPDATE CURRENT_TIMESTAMP
+   ) CHARACTER SET utf8mb4`,
+
+  // reports-and-admin 04 — a Report: a named, reusable query artifact an Editor
+  // publishes for the operations team to run on demand (CONTEXT.md "Report"). A
+  // distinct first-class table, NOT merged into saved_query (docs/adr rationale).
+  // This slice stores fixed SQL only; parameters (05), chart spec + output mode
+  // (06) are added by later slices. author_id references users.id.
+  `CREATE TABLE IF NOT EXISTS report (
+     id          INT AUTO_INCREMENT PRIMARY KEY,
+     author_id   INT NOT NULL,
+     title       VARCHAR(255) NOT NULL,
+     query_sql   TEXT NOT NULL,
+     created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+     updated_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                   ON UPDATE CURRENT_TIMESTAMP,
+     INDEX idx_author (author_id, id)
+   ) CHARACTER SET utf8mb4`,
 ];
 
 /**
@@ -145,6 +173,26 @@ const COLUMN_ADDITIONS: { table: string; column: string; clause: string }[] = [
   // tables that shouldn't be picked by stage-1 selection or graph-connect).
   // Doesn't remove the entry — just hides it from the query pipeline.
   { table: "table_catalog", column: "excluded", clause: "ADD COLUMN excluded TINYINT(1) NOT NULL DEFAULT 0" },
+  // reports-and-admin 01 — user role (docs/adr/0004). Three tiers; existing rows
+  // default to the least-privileged 'viewer'. The seed admin account is elevated
+  // to super_admin by the setup script.
+  {
+    table: "users",
+    column: "role",
+    clause: "ADD COLUMN role ENUM('viewer','editor','super_admin') NOT NULL DEFAULT 'viewer'",
+  },
+  // reports-and-admin 05 — a Report's parameter declarations (Report Parameters):
+  // a JSON array of { name, type, label, required, default?, options? }. Bound into
+  // the SQL as prepared-statement values at run time. NULL = no parameters.
+  { table: "report", column: "params", clause: "ADD COLUMN params JSON NULL" },
+  // reports-and-admin 06 — Report output: a hand-authored ChartSpec (NULL = no
+  // chart) and the output mode deciding what the runner sees.
+  { table: "report", column: "chart_spec", clause: "ADD COLUMN chart_spec JSON NULL" },
+  {
+    table: "report",
+    column: "output_mode",
+    clause: "ADD COLUMN output_mode ENUM('table','chart','both') NOT NULL DEFAULT 'both'",
+  },
 ];
 
 async function columnExists(pool: Pool, table: string, column: string): Promise<boolean> {

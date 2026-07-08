@@ -1,19 +1,17 @@
 // NOTE: not `import "server-only"` — reused by ops scripts run via tsx (outside
 // Next). Nothing in the client bundle imports this module (the UI imports types only).
-import type { FieldPacket, RowDataPacket } from "mysql2/promise";
-import { analyticsPool } from "./db";
-import { createProvider, missingProviderKey } from "./llm/factory";
+import { ensureAnalyticsPool } from "./db";
+import { getActiveProvider } from "./llm/factory";
 import type { LLMProvider, SqlChartRequest, SqlChartResponse } from "./llm/provider";
 import { resolveSchemaForQuestion, NoRelevantTablesError } from "./schema/retrieval";
 import {
-  MAX_ROWS,
-  STATEMENT_TIMEOUT_MS,
   checkBlockedIdentifiers,
   checkBlockedResultColumns,
-  enforceRowLimit,
+  isReadOnly,
   isTimeoutError,
   GuardrailError,
 } from "./guardrails";
+import { executeGuarded } from "./analytics/execute";
 import {
   normalizeQuestion,
   findExactSavedQuery,
@@ -29,62 +27,6 @@ function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-/**
- * Minimal slice-02 safety: only allow a single read-only statement. The full
- * guardrail stack (forced LIMIT, statement timeout, column blacklist) lands in
- * slice 04 — the read-only DB account is the real protection until then.
- */
-function isReadOnly(sql: string): boolean {
-  const s = sql.trim().replace(/;\s*$/, "");
-  if (s.includes(";")) return false; // no multi-statement
-  return /^(select|with)\b/i.test(s);
-}
-
-/**
- * Run a generated query under the technical guardrails (PRD §4):
- *   - statement timeout (server MAX_EXECUTION_TIME + client-side timeout)
- *   - forced row cap (LIMIT)
- * Read-only is already guaranteed by the DB account; isReadOnly() is a belt.
- */
-async function executeGuarded(
-  sql: string,
-): Promise<{ rows: Record<string, unknown>[]; columns: string[] }> {
-  const pool = analyticsPool();
-  if (!pool) throw new Error("分析資料庫未設定（ANALYTICS_DB_* 環境變數）");
-  const conn = await pool.getConnection();
-  try {
-    // Server-side kill switch for runaway scans. Dialect differs:
-    //   MariaDB → SET SESSION max_statement_time = <seconds>
-    //   MySQL   → SET SESSION MAX_EXECUTION_TIME = <milliseconds>
-    // Try MariaDB first, fall back to MySQL; if neither is supported the
-    // client-side query timeout below is the backstop.
-    const seconds = Math.max(1, Math.ceil(STATEMENT_TIMEOUT_MS / 1000));
-    try {
-      await conn.query("SET SESSION max_statement_time = ?", [seconds]);
-    } catch {
-      try {
-        await conn.query("SET SESSION MAX_EXECUTION_TIME = ?", [STATEMENT_TIMEOUT_MS]);
-      } catch {
-        /* neither variable supported — rely on the client-side timeout */
-      }
-    }
-    const guarded = enforceRowLimit(sql, MAX_ROWS);
-    const [rows, fields] = (await conn.query({
-      sql: guarded,
-      timeout: STATEMENT_TIMEOUT_MS + 2000, // client-side backstop
-    })) as [RowDataPacket[], FieldPacket[]];
-    const columns = (fields ?? []).map((f) => f.name);
-    return { rows: rows as Record<string, unknown>[], columns };
-  } finally {
-    conn.release();
-  }
-}
-
-let cachedProvider: LLMProvider | null = null;
-function getProvider(): LLMProvider {
-  cachedProvider ??= createProvider();
-  return cachedProvider;
-}
 
 /**
  * Trusted-query reuse (#3): find a confirmed saved query equivalent to this
@@ -155,15 +97,15 @@ export async function runEngine(
 ): Promise<EngineResult> {
   const { userId, history = [] } = opts;
 
-  const keyError = missingProviderKey();
-  if (keyError) {
-    return { ok: false, error: keyError };
+  // Provider + analytics pool are resolved from Settings (docs/adr/0005) and
+  // rebuilt if a Super-Admin changed them — no restart needed.
+  const { provider, missingKey } = await getActiveProvider();
+  if (missingKey) {
+    return { ok: false, error: missingKey };
   }
-  if (!analyticsPool()) {
-    return { ok: false, error: "分析資料庫未設定（請設定 ANALYTICS_DB_* 環境變數）" };
+  if (!(await ensureAnalyticsPool())) {
+    return { ok: false, error: "分析資料庫未設定（請在系統設定或 .env 填入連線）" };
   }
-
-  const provider = getProvider();
 
   // #3 trusted-query reuse: only for standalone questions (first turn). A
   // follow-up like "break Q3 into weeks" must go through generation with context,

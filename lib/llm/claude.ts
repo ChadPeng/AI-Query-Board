@@ -66,9 +66,11 @@ export class ClaudeProvider implements LLMProvider {
   private client: Anthropic;
   private model: string;
 
-  constructor() {
-    this.client = new Anthropic(); // reads ANTHROPIC_API_KEY
-    this.model = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
+  // opts come from Settings (docs/adr/0005); omitted → the SDK/env defaults apply,
+  // which keeps the no-arg path working for ops scripts.
+  constructor(opts: { apiKey?: string; model?: string } = {}) {
+    this.client = new Anthropic(opts.apiKey ? { apiKey: opts.apiKey } : undefined);
+    this.model = opts.model || process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6";
   }
 
   async selectTables(req: TableSelectionRequest): Promise<string[]> {

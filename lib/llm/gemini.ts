@@ -38,10 +38,10 @@ export class GeminiProvider implements LLMProvider {
   private ai: GoogleGenAI;
   private model: string;
 
-  constructor() {
-    const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+  constructor(opts: { apiKey?: string; model?: string } = {}) {
+    const apiKey = opts.apiKey || process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
     this.ai = new GoogleGenAI({ apiKey });
-    this.model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+    this.model = opts.model || process.env.GEMINI_MODEL || "gemini-2.5-flash";
   }
 
   /** One generateContent call with a short retry on transient (429/503) errors. */

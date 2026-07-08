@@ -1023,6 +1023,126 @@ body {
   font-family: var(--font-mono-stack);
 }
 
+/* reports-and-admin 04 — Report editor form + run result */
+.report-editor,
+.report-result {
+  margin-top: 18px;
+}
+.report-editor {
+  padding: 16px;
+  border: 1px solid var(--border-strong);
+  clip-path: var(--chamfer);
+  background: var(--panel);
+}
+.report-editor h2,
+.report-result h2 {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-family: var(--font-accent-stack);
+}
+.kn-field {
+  display: block;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.kn-field .kn-input,
+.kn-field .kn-textarea,
+.kn-field .kn-select {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+}
+.report-params-edit {
+  margin: 12px 0;
+}
+.report-params-edit .params-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.param-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.param-row .param-required {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.report-run-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+  margin-bottom: 16px;
+}
+.report-run-form .kn-field {
+  margin-bottom: 0;
+}
+.report-run-form .range-inputs {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+.report-run-form .req {
+  color: var(--danger);
+}
+.report-chart-edit {
+  margin: 12px 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.chart-authoring {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.y-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 6px;
+}
+.report-actions {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.setting-item {
+  padding: 14px;
+  border: 1px solid var(--border-strong);
+  clip-path: var(--chamfer);
+  background: var(--panel);
+}
+.setting-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.setting-desc {
+  margin: 6px 0 10px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
 .kn-add {
   margin-top: 18px;
   padding: 16px;

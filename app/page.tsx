@@ -7,6 +7,7 @@ import GridLayout, { WidthProvider, type Layout } from "react-grid-layout";
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
 import { Chart } from "./components/Chart";
+import { can, isRole } from "@/lib/auth/permissions";
 import type { ChartSpec, EngineResult, PinnedChart } from "@/lib/llm/types";
 
 const Grid = WidthProvider(GridLayout);
@@ -24,6 +25,10 @@ type Preview = {
 
 export default function Home() {
   const { data: session } = useSession();
+  const canAuthor = can(isRole(session?.user?.role) ? session.user.role : "viewer", "report:create");
+  const [promoting, setPromoting] = useState(false);
+  const [promoteMsg, setPromoteMsg] = useState<string | null>(null);
+  const [setupNeeded, setSetupNeeded] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [pinned, setPinned] = useState<PinnedChart[]>([]);
   const [stashed, setStashed] = useState<PinnedChart[]>([]);
@@ -56,6 +61,13 @@ export default function Home() {
         setMessages(restored);
       })
       .catch(() => {});
+
+    fetch("/api/setup/status")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d && (!d.analyticsConfigured || !d.providerConfigured)) setSetupNeeded(true);
+      })
+      .catch(() => {});
   }, []);
 
   function newConversation() {
@@ -81,6 +93,7 @@ export default function Home() {
         await res.json();
       if (data.conversationId) setConversationId(data.conversationId);
       if (data.ok) {
+        setPromoteMsg(null); // clear any stale promote notice from a prior result
         setPreview({
           question,
           spec: data.chartSpec,
@@ -133,6 +146,40 @@ export default function Home() {
       const { chart } = await res.json();
       setPinned((p) => [...p, chart]);
       setPreview(null);
+    }
+  }
+
+  // Promote the current AI result into a reusable Report (Editor+). Copies its SQL
+  // + chart spec; the new report can then be given parameters on the reports page.
+  // A table-type AI result becomes a table-only report (report charts are bar/line/
+  // area/pie only).
+  async function promote() {
+    if (!preview) return;
+    setPromoting(true);
+    setPromoteMsg(null);
+    const isTable = preview.spec.chart_type === "table";
+    try {
+      const res = await fetch("/api/reports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: (preview.question || preview.spec.title || "未命名報表").slice(0, 255),
+          querySql: preview.sql,
+          params: [],
+          chartSpec: isTable ? null : preview.spec,
+          outputMode: isTable ? "table" : "both",
+        }),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setPromoteMsg(`升格失敗：${d.error ?? "未知錯誤"}`);
+        return;
+      }
+      setPromoteMsg("✓ 已升格為報表，可到「報表」頁加參數");
+    } catch (e) {
+      setPromoteMsg(`升格失敗：${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setPromoting(false);
     }
   }
 
@@ -204,14 +251,38 @@ export default function Home() {
           儀表板<span className="cyber-cursor">_</span>
         </h1>
 
+        {setupNeeded && (
+          <div className="unreviewed-banner">
+            系統尚未設定完成（分析庫或 LLM）。
+            {session?.user?.role === "super_admin" ? (
+              <>
+                {" "}
+                <Link href="/admin/setup" className="link-btn">
+                  前往初始設定 →
+                </Link>
+              </>
+            ) : (
+              " 請聯絡管理員完成設定。"
+            )}
+          </div>
+        )}
+
         {preview && (
           <div className="chart-card preview cyber-holographic">
             <div className="card-bar">
               <span className="badge">最新結果（未釘選）</span>
-              <button type="button" className="pin" onClick={pin}>
-                📌 釘選到儀表板
-              </button>
+              <span className="header-actions">
+                {canAuthor && (
+                  <button type="button" className="pin" onClick={promote} disabled={promoting}>
+                    {promoting ? "升格中…" : "⇧ 升格為報表"}
+                  </button>
+                )}
+                <button type="button" className="pin" onClick={pin}>
+                  📌 釘選到儀表板
+                </button>
+              </span>
             </div>
+            {promoteMsg && <div className="badge">{promoteMsg}</div>}
             <Chart spec={preview.spec} columns={preview.columns} rows={preview.rows} />
             <details className="sql">
               <summary>生成的 SQL</summary>
@@ -288,9 +359,22 @@ export default function Home() {
             {session?.user?.email ?? ""}
           </span>
           <span className="header-actions">
+            <Link href="/reports" className="link-btn">
+              報表
+            </Link>
             <Link href="/knowledge" className="link-btn">
               語意層
             </Link>
+            {session?.user?.role === "super_admin" && (
+              <>
+                <Link href="/admin/users" className="link-btn">
+                  使用者
+                </Link>
+                <Link href="/admin/settings" className="link-btn">
+                  設定
+                </Link>
+              </>
+            )}
             <button type="button" className="logout" onClick={newConversation}>
               新對話
             </button>

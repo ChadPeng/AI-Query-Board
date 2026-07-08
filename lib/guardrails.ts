@@ -24,6 +24,16 @@ function envList(name: string, fallback: string[]): string[] {
 export const MAX_ROWS = envInt("GUARDRAIL_MAX_ROWS", 1000);
 export const STATEMENT_TIMEOUT_MS = envInt("GUARDRAIL_STATEMENT_TIMEOUT_MS", 5000);
 
+// Reports run deliberate, human-authored SQL on the read-only replica, so they
+// get a higher preview cap and a longer timeout than exploratory AI chat. The
+// (larger) export path gets its own cap in a later slice (REPORT_EXPORT_MAX_ROWS).
+export const REPORT_MAX_ROWS = envInt("REPORT_MAX_ROWS", 5000);
+export const REPORT_STATEMENT_TIMEOUT_MS = envInt("REPORT_STATEMENT_TIMEOUT_MS", 15000);
+// The export path runs a separate query with a much higher cap so a full data set
+// can be downloaded — still capped to avoid OOM (a fully-unbounded export could
+// stream, but that's a later concern).
+export const REPORT_EXPORT_MAX_ROWS = envInt("REPORT_EXPORT_MAX_ROWS", 100000);
+
 /** Reject any query that references these tables at all. Default: none. */
 export const BLOCKED_TABLES = envList("GUARDRAIL_BLOCKED_TABLES", []);
 
@@ -44,6 +54,17 @@ export const BLOCKED_COLUMNS = envList("GUARDRAIL_BLOCKED_COLUMNS", [
   "card_number",
   "cvv",
 ]);
+
+/**
+ * A single read-only statement (SELECT / WITH, no multi-statement). Pure — no DB.
+ * The read-only DB account is the real guarantee; this is a belt shared by the AI
+ * engine, the Report runner, and Report-input validation.
+ */
+export function isReadOnly(sql: string): boolean {
+  const s = sql.trim().replace(/;\s*$/, "");
+  if (s.includes(";")) return false; // no multi-statement
+  return /^(select|with)\b/i.test(s);
+}
 
 /** Raised when a query trips a guardrail. The message is user-facing. */
 export class GuardrailError extends Error {

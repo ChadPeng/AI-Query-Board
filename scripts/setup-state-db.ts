@@ -25,16 +25,18 @@ async function seedDemoUser(pool: mysql.Pool): Promise<void> {
     SEED_EMAIL,
   ])) as [{ id: number }[], unknown];
   if (existing.length > 0) {
-    console.log(`✓ demo 帳號已存在：${SEED_EMAIL}（略過）`);
+    // Idempotently ensure the seed account is the first super_admin (docs/adr/0004).
+    await pool.query("UPDATE users SET role = 'super_admin' WHERE email = ?", [SEED_EMAIL]);
+    console.log(`✓ demo 帳號已存在：${SEED_EMAIL}（確保為 super_admin）`);
     return;
   }
   const hash = await bcrypt.hash(SEED_PASSWORD, 10);
-  await pool.query("INSERT INTO users (email, password_hash, name) VALUES (?, ?, ?)", [
+  await pool.query("INSERT INTO users (email, password_hash, name, role) VALUES (?, ?, ?, 'super_admin')", [
     SEED_EMAIL,
     hash,
     SEED_NAME,
   ]);
-  console.log(`✓ demo 帳號已建立：${SEED_EMAIL} / ${SEED_PASSWORD}`);
+  console.log(`✓ demo 帳號已建立：${SEED_EMAIL} / ${SEED_PASSWORD}（super_admin）`);
 }
 
 async function main() {
@@ -48,7 +50,9 @@ async function main() {
     throw new Error("STATE_DB_HOST / STATE_DB_USER / STATE_DB_DATABASE 必須設定");
   }
 
-  // 1. Create the database (connect with no default database).
+  // 1. Create the database (connect with no default database). Best-effort: a
+  // least-privilege state account may lack the server-level CREATE DATABASE
+  // privilege while the database already exists — tolerate that and continue.
   const admin = await mysql.createConnection({
     host,
     port,
@@ -57,8 +61,14 @@ async function main() {
     connectTimeout: 8000,
     multipleStatements: false,
   });
-  await admin.query(`CREATE DATABASE IF NOT EXISTS ${ident(database)} CHARACTER SET utf8mb4`);
-  console.log(`✓ database ${database} ready on ${host}:${port}`);
+  try {
+    await admin.query(`CREATE DATABASE IF NOT EXISTS ${ident(database)} CHARACTER SET utf8mb4`);
+    console.log(`✓ database ${database} ready on ${host}:${port}`);
+  } catch (e) {
+    const [rows] = (await admin.query("SHOW DATABASES LIKE ?", [database])) as [unknown[], unknown];
+    if (rows.length === 0) throw e; // truly missing and we can't create it
+    console.log(`✓ database ${database} already exists（帳號無 CREATE DATABASE 權限，略過建立）`);
+  }
   await admin.end();
 
   // 2. Run migrations into it.

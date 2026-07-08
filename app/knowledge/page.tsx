@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { useSession } from "next-auth/react";
 import type { CatalogEntry } from "@/lib/state/catalog";
 import type { SemanticRule } from "@/lib/state/semanticRules";
 import type { Relationship } from "@/lib/state/relationships";
@@ -20,6 +21,7 @@ interface KnowledgeData {
 }
 
 export default function KnowledgePage() {
+  const { data: session } = useSession();
   const [tab, setTab] = useState<Tab>("rules");
   const [data, setData] = useState<KnowledgeData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -58,6 +60,19 @@ export default function KnowledgePage() {
           語意層
         </h1>
         <span className="header-actions">
+          <Link href="/reports" className="link-btn">
+            報表
+          </Link>
+          {session?.user?.role === "super_admin" && (
+            <>
+              <Link href="/admin/users" className="link-btn">
+                使用者
+              </Link>
+              <Link href="/admin/settings" className="link-btn">
+                設定
+              </Link>
+            </>
+          )}
           <Link href="/" className="link-btn">
             ← 回儀表板
           </Link>
