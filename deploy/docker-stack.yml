@@ -1,0 +1,79 @@
+# =============================================================================
+# Docker Swarm Stack 通用模板
+# 適用於多專案 / 多環境（dev, staging, prod）
+# 用法：
+#   docker stack deploy -c docker-stack.yml <stack-name>
+#   所有變數透過 .env 或 CI/CD pipeline 注入
+# =============================================================================
+
+version: "3.9"
+
+x-common-env: &common-env
+  APP_ID: ${APP_ID}
+  ENV_TAG: ${ENV_TAG}
+  APOLLO_SECRET: ${APOLLO_SECRET}
+  TZ: ${TZ:-Asia/Taipei}
+  BRANCH_NAME: ${BRANCH_NAME}
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+services:
+  # ===========================================================================
+  # Frontend App (SPA / Nginx)
+  # ===========================================================================
+  app:
+    image: ${IMAGE_FULL_NAME:?IMAGE_FULL_NAME is required}
+    stop_signal: SIGTERM
+    environment:
+      <<: *common-env
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:${APP_PORT:-80}${HEALTHCHECK_PATH:-/} || exit 1"]
+      interval: ${HEALTHCHECK_INTERVAL:-15s}
+      timeout: ${HEALTHCHECK_TIMEOUT:-5s}
+      retries: ${HEALTHCHECK_RETRIES:-3}
+      start_period: ${HEALTHCHECK_START_PERIOD:-30s}
+    networks:
+      - traefik-public
+    logging: *default-logging
+    deploy:
+      mode: replicated
+      replicas: ${APP_REPLICAS:-2}
+      placement:
+        constraints:
+          - node.labels.env_tag == ${ENV_TAG}
+          - ${APP_PLACEMENT_LABEL:-node.labels.app == true}
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+        failure_action: rollback
+      rollback_config:
+        parallelism: 0
+        order: stop-first
+      resources:
+        limits:
+          cpus: "${APP_CPU_LIMIT:-0.5}"
+          memory: ${APP_MEMORY_LIMIT:-256M}
+        reservations:
+          cpus: "${APP_CPU_RESERVE:-0.1}"
+          memory: ${APP_MEMORY_RESERVE:-64M}
+      labels:
+        # Traefik 路由
+        - "traefik.enable=${TRAEFIK_ENABLED:-true}"
+        - "traefik.swarm.network=traefik-public"
+        - "traefik.http.routers.${STACK_NAME:-app}.rule=Host(`${DOMAIN_HOST}`) && PathPrefix(`${PATH_PREFIX:-/}`)"
+        - "traefik.http.routers.${STACK_NAME:-app}.entrypoints=${TRAEFIK_ENTRYPOINT:-web,websecure}"
+        - "traefik.http.services.${STACK_NAME:-app}.loadbalancer.server.port=${APP_PORT:-80}"
+
+networks:
+  traefik-public:
+    external: true

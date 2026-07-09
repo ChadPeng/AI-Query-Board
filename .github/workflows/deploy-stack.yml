@@ -1,0 +1,88 @@
+name: Deploy Compose CI/CD
+
+on:
+  push:
+    branches:
+      - dev
+      - swarm
+      - preview/*
+      - pre
+      - main
+  workflow_dispatch:
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    env:
+      APP_ID: Ment-Query-Board
+      HARBOR_URL: ${{ vars.MENT_REGISTRY }}
+      HARBOR_PROJECT: ment
+      IMAGE_NAME: qb-frontend
+      CONTAINER_NAME: ment-qb-frontend
+#      DEV_HOST: ${{ vars.MENT_TEST06 }}
+#      PROD_HOST: ${{ vars.GCP_MENT_CP_PAYMENT01 }}
+      HEALTHCHECK_TIMEOUT: 300
+    outputs:
+      environment: ${{ steps.set-vars.outputs.environment }}
+      target_host: ${{ steps.set-vars.outputs.target_host }}
+      app_id: ${{ steps.set-vars.outputs.app_id }}
+      harbor_url: ${{ steps.set-vars.outputs.harbor_url }}
+      harbor_project: ${{ steps.set-vars.outputs.harbor_project }}
+      image_name: ${{ steps.set-vars.outputs.image_name }}
+      container_name: ${{ steps.set-vars.outputs.container_name }}
+      healthcheck_timeout: ${{ steps.set-vars.outputs.healthcheck_timeout }}
+    steps:
+      - name: Resolve deploy variables by branch
+        id: set-vars
+        shell: bash
+        run: |
+          cat <<EOF >> "$GITHUB_OUTPUT"
+          app_id=${APP_ID}
+          harbor_url=${HARBOR_URL}
+          harbor_project=${HARBOR_PROJECT}
+          image_name=${IMAGE_NAME}
+          container_name=${CONTAINER_NAME}
+          healthcheck_timeout=${HEALTHCHECK_TIMEOUT}
+          EOF
+
+          case "${GITHUB_REF_NAME}" in
+            preview*)
+              echo "environment=preview" >> "$GITHUB_OUTPUT"
+              ;;
+            swarm)
+              echo "environment=dev" >> "$GITHUB_OUTPUT"
+              ;;
+            develop)
+              echo "environment=dev" >> "$GITHUB_OUTPUT"
+              ;;
+            main)
+              echo "environment=prod" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "Unsupported branch: ${GITHUB_REF_NAME}" >&2
+              exit 1
+              ;;
+          esac
+
+  build:
+    needs: prepare
+    uses: mentrd/Shared-Workflows/.github/workflows/build-image.yml@main
+    with:
+      environment:        ${{ needs.prepare.outputs.environment }}
+      app_id:             ${{ needs.prepare.outputs.app_id }}
+      harbor_url:         ${{ needs.prepare.outputs.harbor_url }}
+      harbor_project:     ${{ needs.prepare.outputs.harbor_project }}
+      image_name:         ${{ needs.prepare.outputs.image_name }}
+      base_image_enabled: true
+    secrets: inherit
+
+  deploy:
+    needs: [prepare, build]
+    uses: mentrd/Shared-Workflows/.github/workflows/deploy-swarm.yml@main
+    with:
+      image_full_name:  ${{ needs.build.outputs.image_full_name }}
+      stack_name:       ${{ needs.prepare.outputs.app_id }}-${{ needs.prepare.outputs.environment }}
+      environment:      ${{ needs.prepare.outputs.environment }}
+      compose_file:     deploy/docker-stack.yml
+      deploy_timeout:   301
+    secrets: inherit
