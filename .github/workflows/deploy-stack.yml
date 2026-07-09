@@ -52,7 +52,7 @@ jobs:
             swarm)
               echo "environment=dev" >> "$GITHUB_OUTPUT"
               ;;
-            develop)
+            dev)
               echo "environment=dev" >> "$GITHUB_OUTPUT"
               ;;
             main)
