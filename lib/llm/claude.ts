@@ -2,13 +2,16 @@ import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import { z } from "zod";
 import type {
+  DatasetMatchRequest,
   DescribeTableRequest,
   LearnFromSqlRequest,
   LearnFromSqlResult,
+  LearnedRelationship,
   LLMProvider,
   SavedQuestionMatchRequest,
   SqlChartRequest,
   SqlChartResponse,
+  SuggestRelationshipsRequest,
   TableSelectionRequest,
 } from "./provider";
 import {
@@ -17,11 +20,15 @@ import {
   SAVED_MATCH_SYSTEM,
   DESCRIBE_SYSTEM,
   LEARN_SYSTEM,
+  SUGGEST_REL_SYSTEM,
+  MATCH_DATASET_SYSTEM,
   buildSqlUserPrompt,
   buildSelectUserPrompt,
   buildSavedMatchUserPrompt,
   buildDescribeUserPrompt,
   buildLearnUserPrompt,
+  buildSuggestRelationshipsUserPrompt,
+  buildMatchDatasetUserPrompt,
 } from "./prompts";
 
 // NOTE: intentionally NOT `import "server-only"` — the bootstrap ops script
@@ -41,6 +48,19 @@ const SqlChartSchema = z.object({
 
 const TableSelectionSchema = z.object({ tables: z.array(z.string()) });
 const SavedMatchSchema = z.object({ match_id: z.number().int().nullable() });
+const DatasetMatchSchema = z.object({ dataset_id: z.number().int().nullable() });
+
+const SuggestRelSchema = z.object({
+  relationships: z.array(
+    z.object({
+      fromTable: z.string(),
+      fromColumn: z.string(),
+      toTable: z.string(),
+      toColumn: z.string(),
+      cardinality: z.enum(["many_to_one", "one_to_one"]),
+    }),
+  ),
+});
 
 const LearnSchema = z.object({
   relationships: z.array(
@@ -127,6 +147,34 @@ export class ClaudeProvider implements LLMProvider {
     });
     if (response.stop_reason === "refusal") throw new Error("模型拒絕回應此問題");
     return response.parsed_output ?? { relationships: [], rules: [] };
+  }
+
+  async suggestRelationships(req: SuggestRelationshipsRequest): Promise<LearnedRelationship[]> {
+    const response = await this.client.messages.parse({
+      model: this.model,
+      max_tokens: 2048,
+      thinking: { type: "disabled" },
+      system: SUGGEST_REL_SYSTEM,
+      messages: [{ role: "user", content: buildSuggestRelationshipsUserPrompt(req) }],
+      output_config: { format: zodOutputFormat(SuggestRelSchema) },
+    });
+    if (response.stop_reason === "refusal") return [];
+    return response.parsed_output?.relationships ?? [];
+  }
+
+  async matchDataset(req: DatasetMatchRequest): Promise<number | null> {
+    if (req.candidates.length === 0) return null;
+    const response = await this.client.messages.parse({
+      model: this.model,
+      max_tokens: 64,
+      thinking: { type: "disabled" },
+      system: MATCH_DATASET_SYSTEM,
+      messages: [{ role: "user", content: buildMatchDatasetUserPrompt(req) }],
+      output_config: { format: zodOutputFormat(DatasetMatchSchema) },
+    });
+    if (response.stop_reason === "refusal") return null;
+    const id = response.parsed_output?.dataset_id ?? null;
+    return id != null && req.candidates.some((c) => c.id === id) ? id : null;
   }
 
   async describeTable(req: DescribeTableRequest): Promise<string> {

@@ -150,6 +150,73 @@ export const STATE_MIGRATIONS: string[] = [
                    ON UPDATE CURRENT_TIMESTAMP,
      INDEX idx_author (author_id, id)
    ) CHARACTER SET utf8mb4`,
+
+  // JOIN 可靠性第二波 — failure telemetry. Every engine failure is a lead for
+  // the curation loop (missing relationship / bad description / eval candidate).
+  // Best-effort writes only; never on the user-facing error path.
+  `CREATE TABLE IF NOT EXISTS query_failure (
+     id          INT AUTO_INCREMENT PRIMARY KEY,
+     user_id     INT NULL,
+     question    TEXT NOT NULL,
+     stage       VARCHAR(32) NOT NULL,
+     sql_text    TEXT NULL,
+     errno       INT NULL,
+     error_msg   TEXT NOT NULL,
+     created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+     INDEX idx_created (created_at)
+   ) CHARACTER SET utf8mb4`,
+
+  // BI 第三波 — Dataset（資料模型，docs/adr/0006）：具名、已確認的查詢單位。
+  // 星型限制：恰一張基底表；JOIN 樹只允許 many_to_one/one_to_one 向維度方向走；
+  // 度量只定義在基底表 → 結構上排除 fan-out，編譯器不需預聚合即正確。
+  `CREATE TABLE IF NOT EXISTS dataset (
+     id           INT AUTO_INCREMENT PRIMARY KEY,
+     name         VARCHAR(120) NOT NULL UNIQUE,
+     description  TEXT NULL,
+     author_id    INT NOT NULL,
+     published    TINYINT(1) NOT NULL DEFAULT 0,
+     created_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+     updated_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    ON UPDATE CURRENT_TIMESTAMP
+   ) CHARACTER SET utf8mb4`,
+
+  // 模型內的表節點。parent_alias IS NULL 的那一列是基底表（每個 dataset 恰一列）。
+  // JOIN 樹直接掛在節點上（parent.parent_column = this.child_column）；alias 支援
+  // 同表多角色（buyer/seller）。邊複製自 relationship（provenance 記 relationship_id，
+  // 可懸掛）——策展產物不因全域圖變動而默默改變。
+  `CREATE TABLE IF NOT EXISTS dataset_table (
+     id               INT AUTO_INCREMENT PRIMARY KEY,
+     dataset_id       INT NOT NULL,
+     alias            VARCHAR(64) NOT NULL,
+     schema_name      VARCHAR(64) NOT NULL,
+     table_name       VARCHAR(64) NOT NULL,
+     parent_alias     VARCHAR(64) NULL,
+     parent_column    VARCHAR(64) NULL,
+     child_column     VARCHAR(64) NULL,
+     cardinality      ENUM('many_to_one','one_to_one') NULL,
+     relationship_id  INT NULL,
+     UNIQUE KEY uq_alias (dataset_id, alias)
+   ) CHARACTER SET utf8mb4`,
+
+  // 維度與度量合一表（kind 判別）。度量＝欄位＋聚合＋選填 condition_sql 業務口徑
+  // （editor 信任層級同 Report 手寫 SQL，執行仍走全套護欄）。aggregation='count'
+  // 且 column_name IS NULL 代表 COUNT(*)。data_type 是建立時快取的欄位型別，
+  // 供 UI 決定日期 bucket／篩選 widget。
+  `CREATE TABLE IF NOT EXISTS dataset_field (
+     id             INT AUTO_INCREMENT PRIMARY KEY,
+     dataset_id     INT NOT NULL,
+     kind           ENUM('dimension','measure') NOT NULL,
+     name           VARCHAR(120) NOT NULL,
+     description    TEXT NULL,
+     table_alias    VARCHAR(64) NOT NULL,
+     column_name    VARCHAR(64) NULL,
+     data_type      VARCHAR(64) NULL,
+     aggregation    ENUM('sum','avg','count','count_distinct','min','max') NULL,
+     condition_sql  TEXT NULL,
+     sort_order     INT NOT NULL DEFAULT 0,
+     UNIQUE KEY uq_field_name (dataset_id, name),
+     INDEX idx_dataset (dataset_id, kind, sort_order)
+   ) CHARACTER SET utf8mb4`,
 ];
 
 /**

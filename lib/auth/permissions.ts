@@ -25,6 +25,8 @@ export type Action =
   | "report:create"
   | "report:edit"
   | "report:delete"
+  | "dataset:explore"
+  | "dataset:manage"
   | "user:manage"
   | "setting:manage";
 
@@ -39,6 +41,8 @@ const MIN_ROLE: Record<Action, Role> = {
   "report:create": "editor",
   "report:edit": "editor",
   "report:delete": "editor",
+  "dataset:explore": "viewer",
+  "dataset:manage": "editor",
   "user:manage": "super_admin",
   "setting:manage": "super_admin",
 };

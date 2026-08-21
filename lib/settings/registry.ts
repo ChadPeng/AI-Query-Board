@@ -20,6 +20,14 @@ export interface SettingDef {
 
 export const SETTINGS: SettingDef[] = [
   {
+    key: "retrieval.max_hops",
+    envVar: "RETRIEVAL_MAX_HOPS",
+    type: "number",
+    default: "3",
+    label: "關係圖擴張跳數上限",
+    description: "圖連通擴張（graph-connect）找中介表的最短路徑上限；超過此跳數的表對視為不連通。",
+  },
+  {
     key: "report.max_rows",
     envVar: "REPORT_MAX_ROWS",
     type: "number",
@@ -96,7 +104,8 @@ export const SETTINGS: SettingDef[] = [
   { key: "llm.gemini_model", envVar: "GEMINI_MODEL", type: "string", default: "gemini-2.5-flash", label: "Gemini 模型", description: "" },
   { key: "llm.groq_key", envVar: "GROQ_API_KEY", type: "string", default: "", label: "Groq 金鑰", description: "LLM_PROVIDER=groq 時使用。", secret: true },
   { key: "llm.groq_model", envVar: "GROQ_MODEL", type: "string", default: "llama-3.3-70b-versatile", label: "Groq 模型", description: "" },
-  { key: "llm.ollama_base_url", envVar: "OLLAMA_BASE_URL", type: "string", default: "http://localhost:11434/v1", label: "Ollama Base URL", description: "LLM_PROVIDER=ollama 時使用。" },
+  { key: "llm.ollama_base_url", envVar: "OLLAMA_BASE_URL", type: "string", default: "http://localhost:11434/v1", label: "Ollama Base URL", description: "LLM_PROVIDER=ollama 時使用。本地預設 http://localhost:11434/v1；Ollama Cloud 填 https://ollama.com/v1。" },
+  { key: "llm.ollama_key", envVar: "OLLAMA_API_KEY", type: "string", default: "", label: "Ollama API 金鑰", description: "Ollama Cloud（ollama.com）時必填，金鑰建於 ollama.com/settings/keys；本地 Ollama 留空。", secret: true },
   { key: "llm.ollama_model", envVar: "OLLAMA_MODEL", type: "string", default: "qwen2.5-coder:7b", label: "Ollama 模型", description: "" },
   { key: "llm.openai_base_url", envVar: "OPENAI_BASE_URL", type: "string", default: "", label: "OpenAI 相容 Base URL", description: "LLM_PROVIDER=openai-compat 時使用。" },
   { key: "llm.openai_key", envVar: "OPENAI_API_KEY", type: "string", default: "", label: "OpenAI 相容 金鑰", description: "", secret: true },

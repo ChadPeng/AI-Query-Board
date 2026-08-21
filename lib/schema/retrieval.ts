@@ -5,18 +5,27 @@ import {
   type SemanticRule,
 } from "../state/semanticRules";
 import { listRelationships, type Relationship } from "../state/relationships";
-import { getCreateTablesFor, qualifiedName } from "./introspect";
+import { getCreateTablesFor, listColumnsInSchemas, parseQualified, qualifiedName } from "./introspect";
 import { connectTables } from "./relationshipGraph";
 import type {
+  DisconnectedPair,
+  InjectedJoinStep,
   InjectedRelationship,
   InjectedRule,
   LLMProvider,
 } from "../llm/provider";
 import { SAMPLE_SCHEMA_DDL } from "./sampleSchema";
+import { keywordScore, tokenize } from "./keywordScore";
+import { getNumberSetting } from "../settings/service";
 
 export class NoRelevantTablesError extends Error {
-  constructor() {
-    super("找不到與問題相關的資料表");
+  constructor(suggestions: string[] = []) {
+    super(
+      suggestions.length > 0
+        ? `找不到與問題相關的資料表。名稱上可能相關：${suggestions.join("、")}` +
+          `——若其中有對的表，到「語意層」補充它的描述或關係可讓 AI 選得到它。`
+        : "找不到與問題相關的資料表",
+    );
     this.name = "NoRelevantTablesError";
   }
 }
@@ -31,7 +40,64 @@ export interface ResolvedSchema {
   /** Semantic Layer context for stage-2 (see docs/adr/0002). */
   rules: InjectedRule[];
   relationships: InjectedRelationship[];
-  disconnectedPairs: [string, string][];
+  /** ready-to-copy JOIN chains between the selected tables */
+  joinPaths: InjectedJoinStep[][];
+  /** selected-table pairs the graph couldn't connect, with shared-column hints */
+  disconnected: DisconnectedPair[];
+  /** set when this schema came from a curated Dataset (dataset-first routing) */
+  datasetName?: string;
+}
+
+/** Columns too generic to be a JOIN anchor between two unrelated tables. */
+const SHARED_COLUMN_STOP_WORDS = new Set([
+  "id",
+  "created_at",
+  "updated_at",
+  "deleted_at",
+  "created_by",
+  "updated_by",
+  "status",
+  "type",
+  "name",
+  "sort",
+  "remark",
+  "note",
+  "memo",
+  "is_deleted",
+]);
+
+/**
+ * For each disconnected pair, find column names both tables share (minus
+ * stop-words) — a deterministic anchor the model may join on when it truly
+ * fits the question. Best-effort: on any failure the pairs pass through with
+ * no hint (same information as before, never less).
+ */
+async function annotateDisconnected(pairs: [string, string][]): Promise<DisconnectedPair[]> {
+  if (pairs.length === 0) return [];
+  try {
+    const schemas = [
+      ...new Set(
+        pairs.flatMap((p) => p).map((t) => parseQualified(t)?.schema).filter((s): s is string => !!s),
+      ),
+    ];
+    const cols = await listColumnsInSchemas(schemas);
+    const byTable = new Map<string, Set<string>>();
+    for (const c of cols) {
+      const t = qualifiedName(c.schema, c.table);
+      (byTable.get(t) ?? byTable.set(t, new Set()).get(t)!).add(c.column.toLowerCase());
+    }
+    return pairs.map(([a, b]) => {
+      const colsA = byTable.get(a);
+      const colsB = byTable.get(b);
+      const shared =
+        colsA && colsB
+          ? [...colsA].filter((c) => colsB.has(c) && !SHARED_COLUMN_STOP_WORDS.has(c)).sort()
+          : [];
+      return { pair: [a, b] as [string, string], sharedColumns: shared.slice(0, 5) };
+    });
+  } catch {
+    return pairs.map((pair) => ({ pair, sharedColumns: [] }));
+  }
 }
 
 /**
@@ -43,7 +109,7 @@ export interface ResolvedSchema {
  * (a single catalog table with that name) — otherwise the guess is unsafe
  * and the table is dropped.
  */
-function resolvePickedTable(
+export function resolvePickedTable(
   raw: string,
   candidates: { table: string }[],
   known: Set<string>,
@@ -106,7 +172,8 @@ export async function resolveSchemaForQuestion(
       usedFallback: true,
       rules: [],
       relationships: [],
-      disconnectedPairs: [],
+      joinPaths: [],
+      disconnected: [],
     };
   }
 
@@ -130,28 +197,64 @@ export async function resolveSchemaForQuestion(
   // "mepay.orders") despite the prompt instructing otherwise — fall back to
   // matching by the unqualified table name when it's unambiguous.
   const known = new Set(candidates.map((c) => c.table));
-  const rawPicked = await provider.selectTables({
-    question,
-    catalog: candidates,
-    rules: alwaysRules.map(toInjectedRule),
-  });
-  const picked = Array.from(
-    new Set(
-      rawPicked
-        .map((t) => resolvePickedTable(t, candidates, known))
-        .filter((t): t is string => t != null),
-    ),
+  const resolvePicks = (raw: string[]) =>
+    Array.from(
+      new Set(
+        raw
+          .map((t) => resolvePickedTable(t, candidates, known))
+          .filter((t): t is string => t != null),
+      ),
+    );
+
+  let picked = resolvePicks(
+    await provider.selectTables({
+      question,
+      catalog: candidates,
+      rules: alwaysRules.map(toInjectedRule),
+    }),
   );
 
+  // Fallback re-pick: an empty first pass usually means the model drowned in
+  // the full catalog. Narrow it with deterministic keyword scoring (a smaller
+  // list is EASIER for a weak model) and explicitly permit best guesses.
+  const questionTokens = tokenize(question);
+  const scored = candidates
+    .map((c) => ({ c, score: keywordScore(questionTokens, c.table, c.description) }))
+    .sort((a, b) => b.score - a.score);
   if (picked.length === 0) {
-    throw new NoRelevantTablesError();
+    const narrowed = scored.slice(0, 30).map((s) => s.c);
+    picked = resolvePicks(
+      await provider.selectTables({
+        question,
+        catalog: narrowed,
+        rules: alwaysRules.map(toInjectedRule),
+        retryHint:
+          "Your first pass over the full catalog returned no tables. This is a NARROWED catalog of the most likely candidates — return your best guesses (up to 10) even if unsure. An empty list is only correct if the question truly cannot be answered from these tables.",
+      }),
+    );
+  }
+
+  if (picked.length === 0) {
+    const suggestions = scored
+      .filter((s) => s.score > 0)
+      .slice(0, 5)
+      .map((s) => s.c.table);
+    throw new NoRelevantTablesError(suggestions);
   }
 
   // Graph-connect: add only the tables that lie on shortest paths between the
   // picked ones (pulls in junction tables so M:N paths join). Keep only tables
   // that exist in the catalog — the graph may reference tables we don't expose.
+  // maxHops is a runtime setting (retrieval.max_hops); default 3.
+  let maxHops = 3;
+  try {
+    const v = await getNumberSetting("retrieval.max_hops");
+    if (Number.isFinite(v) && v > 0) maxHops = v;
+  } catch {
+    /* settings unavailable (e.g. bare script) — keep the default */
+  }
   const relationships = await listRelationships();
-  const connected = connectTables(picked, relationships);
+  const connected = connectTables(picked, relationships, maxHops);
   const finalTables = connected.tables.filter((t) => known.has(t));
 
   // Stage 2: full DDL for the connected tables.
@@ -171,6 +274,7 @@ export async function resolveSchemaForQuestion(
     usedFallback: false,
     rules,
     relationships: connected.edges.map(toInjectedRelationship),
-    disconnectedPairs: connected.disconnectedPairs,
+    joinPaths: connected.paths.map((p) => p.steps),
+    disconnected: await annotateDisconnected(connected.disconnectedPairs),
   };
 }

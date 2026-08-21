@@ -32,7 +32,8 @@ const PROVIDER_FIELDS: Record<string, { key: string; label: string; secret?: boo
     { key: "llm.groq_model", label: "模型" },
   ],
   ollama: [
-    { key: "llm.ollama_base_url", label: "Base URL" },
+    { key: "llm.ollama_base_url", label: "Base URL（本地或 https://ollama.com/v1）" },
+    { key: "llm.ollama_key", label: "API 金鑰（Ollama Cloud 必填，本地留空）", secret: true },
     { key: "llm.ollama_model", label: "模型" },
   ],
   "openai-compat": [

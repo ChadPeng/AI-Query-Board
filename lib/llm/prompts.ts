@@ -1,11 +1,16 @@
 import type {
+  DatasetMatchRequest,
   DescribeTableRequest,
+  DisconnectedPair,
+  InjectedJoinStep,
   InjectedRelationship,
   InjectedRule,
   LearnFromSqlRequest,
   LearnFromSqlResult,
+  LearnedRelationship,
   SavedQuestionMatchRequest,
   SqlChartRequest,
+  SuggestRelationshipsRequest,
   TableSelectionRequest,
 } from "./provider";
 
@@ -27,6 +32,7 @@ Rules:
 - Pick the simplest chart that answers the question: time series -> line; category comparison -> bar; parts of a whole -> pie; raw rows -> table.
 - Keep result sets reasonable; prefer aggregated/grouped results over dumping raw rows.
 - You may be given "Semantic rules" (business meaning the schema can't express — code meanings, metric definitions, filters) and "Table relationships" (join edges the DDL doesn't declare). TREAT THESE AS AUTHORITATIVE: apply the relevant filters, join on the stated columns, and compute metrics as defined. A relationship marked "many-to-one" means many rows on the from-side per one row on the to-side — aggregate/GROUP BY accordingly.
+- If "Verified JOIN paths" are provided, reuse those exact JOIN chains (same ON columns) whenever your query spans those tables — do not invent alternative join routes.
 - Rules or relationships marked "（未確認）" are AI guesses not yet human-verified: use them, but if one contradicts the schema or the question, prefer the schema.
 
 Return a JSON object with exactly these keys:
@@ -73,6 +79,19 @@ Return a JSON object:
   "rules": [{ "scope": "global" | "term" | "table", "termName": string | null, "table": string | null, "content": string }]
 }`;
 
+export const SUGGEST_REL_SYSTEM = `You identify foreign-key relationships in a database that declares none. You are given:
+1. Candidate columns — each looks like a foreign key (by name/type) but has no known relationship. A few sample values are included.
+2. Target tables — the ONLY tables a proposal may reference, each with its primary-key column.
+
+For each candidate column, decide which target table it most likely references. Judge by the column name vs the table names, and whether the sample values look like plausible key values. BE CONSERVATIVE: skip a candidate rather than guess — an empty list is a fine answer. Never propose a target not in the list. cardinality is "many_to_one" unless the candidate column is clearly unique per row.
+
+Return a JSON object:
+{ "relationships": [{ "fromTable": string, "fromColumn": string, "toTable": string, "toColumn": string, "cardinality": "many_to_one" | "one_to_one" }] }`;
+
+export const MATCH_DATASET_SYSTEM = `Given a data question and a list of curated data models (id: name — description; each model bundles a set of tables, verified joins, and business metrics), return the id of the ONE model that covers the question's subject, or null when none clearly fits. BE CONSERVATIVE: null is better than a wrong match. Never invent an id.
+
+Return a JSON object: { "dataset_id": number | null }`;
+
 const unconfirmed = (reviewed: boolean) => (reviewed ? "" : "（未確認）");
 
 function formatRule(r: InjectedRule): string {
@@ -99,10 +118,34 @@ export function formatRelationships(rels: InjectedRelationship[] | undefined): s
   return `Table relationships (join on these columns — the DDL omits them):\n${rels.map(formatRelationship).join("\n")}`;
 }
 
-function formatDisconnected(pairs: [string, string][] | undefined): string {
-  if (!pairs || pairs.length === 0) return "";
-  const list = pairs.map(([a, b]) => `${a} ↔ ${b}`).join("; ");
-  return `Note: no known relationship connects these selected tables — decide for yourself whether/how to join them: ${list}`;
+/**
+ * Ready-to-copy JOIN chains (shortest paths the relationship graph walked).
+ * A weak model imitates a concrete chain far more reliably than it re-derives
+ * multi-hop joins from loose edges — render them in SQL shape.
+ */
+export function formatJoinPaths(paths: InjectedJoinStep[][] | undefined): string {
+  if (!paths || paths.length === 0) return "";
+  const lines = paths.map((steps) => {
+    const unreviewed = steps.some((s) => !s.reviewed);
+    let chain = `\`${steps[0].fromTable}\``;
+    for (const s of steps) {
+      chain += ` JOIN \`${s.toTable}\` ON ${s.fromTable}.${s.fromColumn} = ${s.toTable}.${s.toColumn}`;
+    }
+    return `- ${chain}${unreviewed ? "（未確認）" : ""}`;
+  });
+  return `Verified JOIN paths between the selected tables — copy these JOIN chains as-is (table order may differ):\n${lines.join("\n")}`;
+}
+
+export function formatDisconnected(items: DisconnectedPair[] | undefined): string {
+  if (!items || items.length === 0) return "";
+  const lines = items.map(({ pair: [a, b], sharedColumns }) => {
+    const anchor =
+      sharedColumns.length > 0
+        ? ` — both tables have column(s) ${sharedColumns.join(", ")}; join on one ONLY if it is semantically the same key`
+        : " — no obvious shared key; join only if the question truly requires it";
+    return `- ${a} ↔ ${b}${anchor}`;
+  });
+  return `Note: no verified relationship connects these selected table pairs. Do not invent join columns:\n${lines.join("\n")}`;
 }
 
 export function buildSqlUserPrompt(req: SqlChartRequest): string {
@@ -112,8 +155,20 @@ export function buildSqlUserPrompt(req: SqlChartRequest): string {
   if (rules) parts.push(`\n${rules}`);
   const rels = formatRelationships(req.relationships);
   if (rels) parts.push(`\n${rels}`);
-  const disconnected = formatDisconnected(req.disconnectedPairs);
+  const joinPaths = formatJoinPaths(req.joinPaths);
+  if (joinPaths) parts.push(`\n${joinPaths}`);
+  const disconnected = formatDisconnected(req.disconnected);
   if (disconnected) parts.push(`\n${disconnected}`);
+
+  if (req.examples && req.examples.length > 0) {
+    const shots = req.examples
+      .map((e, i) => `(${i + 1}) Q: ${e.question}\n    SQL: ${e.sql}`)
+      .join("\n");
+    parts.push(
+      `\nVerified examples of correct question→SQL pairs on this database — ` +
+        `mimic their JOIN and filter patterns, not their intent:\n${shots}`,
+    );
+  }
 
   if (req.history && req.history.length > 0) {
     const turns = req.history
@@ -128,7 +183,17 @@ export function buildSqlUserPrompt(req: SqlChartRequest): string {
   }
 
   parts.push(`\nNew question: ${req.question}`);
-  if (req.repair) {
+  if (req.repair?.kind === "sql_error") {
+    parts.push(
+      `\nYour previous SQL failed with a MySQL error.` +
+        `\nPrevious SQL:\n${req.repair.previousSql}` +
+        `\nMySQL error: ${req.repair.errorMessage}` +
+        (req.repair.addedDdl
+          ? `\n\nAdditional tables that likely contain what you referenced (now part of the schema — you may JOIN them):\n${req.repair.addedDdl}`
+          : "") +
+        `\nFix the SQL. Use ONLY tables and columns that appear in the schema above.`,
+    );
+  } else if (req.repair) {
     parts.push(
       `\nYour previous SQL ran successfully but the chart_spec referenced columns that are NOT in the result set.` +
         `\nPrevious SQL:\n${req.repair.previousSql}` +
@@ -148,7 +213,8 @@ export function buildSelectUserPrompt(req: TableSelectionRequest): string {
   return (
     `Table catalog:\n${catalogText}` +
     (rules ? `\n\n${rules}` : "") +
-    `\n\nQuestion: ${req.question}`
+    `\n\nQuestion: ${req.question}` +
+    (req.retryHint ? `\n\n${req.retryHint}` : "")
   );
 }
 
@@ -160,6 +226,32 @@ export function buildSavedMatchUserPrompt(req: SavedQuestionMatchRequest): strin
 export function buildDescribeUserPrompt(req: DescribeTableRequest): string {
   const sample = JSON.stringify(req.sampleRows, null, 0).slice(0, 1500);
   return `CREATE TABLE:\n${req.createTable}\n\n範例資料（最多數筆）:\n${sample}`;
+}
+
+export function buildSuggestRelationshipsUserPrompt(req: SuggestRelationshipsRequest): string {
+  const candidateText = req.candidates
+    .map(
+      (c) =>
+        `- ${c.table}.${c.column} (${c.dataType})` +
+        (c.sampleValues.length ? ` — sample values: ${c.sampleValues.join(", ")}` : ""),
+    )
+    .join("\n");
+  const targetText = req.targets
+    .map((t) => `- ${t.table} (PK: ${t.pkColumn}, ${t.pkType})`)
+    .join("\n");
+  return `Candidate columns (suspected foreign keys, no known relationship):\n${candidateText}\n\nAllowed target tables:\n${targetText}`;
+}
+
+export function buildMatchDatasetUserPrompt(req: DatasetMatchRequest): string {
+  const list = req.candidates
+    .map((c) => `${c.id}: ${c.name}${c.description ? ` — ${c.description}` : ""}`)
+    .join("\n");
+  return `Data models:\n${list}\n\nQuestion: ${req.question}`;
+}
+
+/** Shape a loosely-parsed suggestRelationships response (drop anything malformed). */
+export function coerceSuggestedRelationships(raw: unknown): LearnedRelationship[] {
+  return coerceLearnResult(raw).relationships;
 }
 
 export function buildLearnUserPrompt(req: LearnFromSqlRequest): string {

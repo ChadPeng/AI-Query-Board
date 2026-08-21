@@ -39,6 +39,7 @@ export interface ProviderConfig {
   groqKey: string;
   groqModel: string;
   ollamaBaseUrl: string;
+  ollamaKey: string;
   ollamaModel: string;
   openaiBaseUrl: string;
   openaiKey: string;
@@ -57,6 +58,7 @@ export async function resolveProviderConfig(): Promise<ProviderConfig> {
     groqKey: await str("llm.groq_key"),
     groqModel: await str("llm.groq_model"),
     ollamaBaseUrl: await str("llm.ollama_base_url"),
+    ollamaKey: await str("llm.ollama_key"),
     ollamaModel: await str("llm.ollama_model"),
     openaiBaseUrl: await str("llm.openai_base_url"),
     openaiKey: await str("llm.openai_key"),

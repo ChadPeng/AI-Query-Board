@@ -98,6 +98,29 @@ export async function listSavedQuestions(
   }
 }
 
+/**
+ * Confirmed question→SQL pairs usable as few-shot examples (personal + shared).
+ * Newest first; the picker filters by similarity, this just supplies material.
+ */
+export async function listSavedQueryExamples(
+  userId: number,
+  limit = 50,
+): Promise<{ question: string; sql: string }[]> {
+  try {
+    const [rows] = (await pool().query(
+      `SELECT question, query_sql
+         FROM saved_query
+        WHERE user_id = ? OR shared = 1
+        ORDER BY created_at DESC
+        LIMIT ?`,
+      [userId, limit],
+    )) as [RowDataPacket[], unknown];
+    return rows.map((r) => ({ question: String(r.question), sql: String(r.query_sql) }));
+  } catch {
+    return [];
+  }
+}
+
 export async function getSavedQueryById(
   id: number,
   userId: number,

@@ -10,6 +10,7 @@ import { CatalogTab } from "./CatalogTab";
 import { RulesTab } from "./RulesTab";
 import { RelationshipsTab } from "./RelationshipsTab";
 import { LearnFromSqlPanel } from "./LearnFromSqlPanel";
+import { StatsPanel } from "./StatsPanel";
 
 type Tab = "tables" | "relationships" | "rules";
 
@@ -84,6 +85,8 @@ export default function KnowledgePage() {
       </p>
 
       {error && <div className="unreviewed-banner">{error}</div>}
+
+      <StatsPanel />
 
       <LearnFromSqlPanel onLearned={load} />
 

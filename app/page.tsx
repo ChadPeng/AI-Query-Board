@@ -36,7 +36,19 @@ export default function Home() {
   const [conversationId, setConversationId] = useState<number | null>(null);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [busyLong, setBusyLong] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // After ~12s of thinking the engine is likely in a self-repair round — say so
+  // instead of leaving a bare "thinking…" (no streaming; this is purely timed).
+  useEffect(() => {
+    if (!busy) {
+      setBusyLong(false);
+      return;
+    }
+    const t = setTimeout(() => setBusyLong(true), 12000);
+    return () => clearTimeout(t);
+  }, [busy]);
 
   // Load the user's persisted dashboard + most recent conversation on mount.
   useEffect(() => {
@@ -109,8 +121,12 @@ export default function Home() {
             text: data.fromSaved
               ? `♻️ 重用了你已驗證過的查詢`
               : data.explanation +
+                (data.datasetUsed ? `（📐 資料模型：${data.datasetUsed}）` : "") +
                 (data.repaired > 0 ? `（已自動修正 ${data.repaired} 次）` : ""),
           },
+          ...(data.warnings ?? []).map(
+            (w): Message => ({ role: "bot", text: `💡 ${w}` }),
+          ),
         ]);
       } else {
         setMessages((m) => [
@@ -359,6 +375,14 @@ export default function Home() {
             {session?.user?.email ?? ""}
           </span>
           <span className="header-actions">
+            <Link href="/explore" className="link-btn">
+              探索
+            </Link>
+            {canAuthor && (
+              <Link href="/models" className="link-btn">
+                模型
+              </Link>
+            )}
             <Link href="/reports" className="link-btn">
               報表
             </Link>
@@ -396,7 +420,11 @@ export default function Home() {
               {m.text}
             </div>
           ))}
-          {busy && <div className="msg bot">思考中…</div>}
+          {busy && (
+            <div className="msg bot">
+              {busyLong ? "還在思考，可能正在自我修正 SQL…" : "思考中…"}
+            </div>
+          )}
         </div>
         <form className="chat-input" onSubmit={send}>
           <div className="cyber-input-wrap">

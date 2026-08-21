@@ -860,6 +860,45 @@ body {
   font-size: 13px;
 }
 
+/* 知識庫健檢面板 */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+.stat-card {
+  border: 1px solid var(--border);
+  clip-path: var(--chamfer-sm);
+  background: var(--bg);
+  padding: 10px 12px;
+}
+.stat-card .stat-value {
+  font-family: var(--font-accent-stack);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent);
+}
+.stat-card .stat-label {
+  color: var(--text-muted);
+  font-size: 12px;
+  margin-top: 2px;
+}
+.stats-sublist {
+  margin: 8px 0;
+  font-size: 13px;
+}
+.stats-sublist > summary {
+  cursor: pointer;
+  color: var(--warn, #d7a600);
+}
+.stats-sublist ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  columns: 2;
+  color: var(--text-muted);
+}
+
 .tabs {
   display: flex;
   gap: 4px;

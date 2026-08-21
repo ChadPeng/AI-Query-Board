@@ -25,8 +25,13 @@ describe("secret encryption (AES-256-GCM)", () => {
   });
 
   it("fails to decrypt tampered ciphertext (authenticated)", () => {
+    // Flip a character mid-string, not near the end: base64's final group has
+    // padding bits a decoder ignores, so an end-of-string flip occasionally
+    // decodes to the SAME bytes (flaky). A mid-string flip always lands in a
+    // full 4-char group and genuinely alters the decoded ciphertext.
     const enc = encryptSecret("secret", key);
-    const tampered = enc.slice(0, -3) + (enc.endsWith("A") ? "B" : "A") + enc.slice(-2);
+    const i = Math.floor(enc.length / 2);
+    const tampered = enc.slice(0, i) + (enc[i] === "A" ? "B" : "A") + enc.slice(i + 1);
     expect(() => decryptSecret(tampered, key)).toThrow();
   });
 

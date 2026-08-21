@@ -32,6 +32,10 @@ export interface EngineSuccess {
   tablesUsed?: string[];
   /** true when this result reused a confirmed query from the trusted-query library (#3) */
   fromSaved?: boolean;
+  /** name of the curated Dataset the schema came from (dataset-first routing) */
+  datasetUsed?: string;
+  /** non-fatal notes worth showing (e.g. tables the relationship graph couldn't connect) */
+  warnings?: string[];
 }
 
 export interface EngineFailure {

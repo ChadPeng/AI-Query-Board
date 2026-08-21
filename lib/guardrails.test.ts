@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { enforceRowLimit } from "./guardrails";
+import { enforceRowLimit, isRetryableSqlError } from "./guardrails";
 
 describe("enforceRowLimit", () => {
   it("wraps a plain SELECT as a derived table with the given cap", () => {
@@ -33,5 +33,30 @@ describe("enforceRowLimit", () => {
     const out = enforceRowLimit("SELECT 1;", 1000);
     expect(out).not.toContain(";");
     expect(out).toContain(") AS _guarded LIMIT 1000");
+  });
+});
+
+describe("isRetryableSqlError", () => {
+  const err = (errno: number, code?: string) =>
+    Object.assign(new Error(`errno ${errno}`), { errno, code });
+
+  it("whitelists model-fixable SQL errors", () => {
+    for (const errno of [1054, 1146, 1064, 1052, 1055, 1109]) {
+      expect(isRetryableSqlError(err(errno))).toBe(true);
+    }
+  });
+
+  it("rejects permission / connection / unknown errors", () => {
+    expect(isRetryableSqlError(err(1045))).toBe(false); // access denied
+    expect(isRetryableSqlError(err(1142))).toBe(false); // command denied
+    expect(isRetryableSqlError({ code: "ECONNREFUSED" })).toBe(false);
+    expect(isRetryableSqlError(new Error("boom"))).toBe(false);
+    expect(isRetryableSqlError(null)).toBe(false);
+  });
+
+  it("never retries a timeout even if an errno matched", () => {
+    // MariaDB timeout errno 1969 isn't whitelisted, but guard explicitly:
+    expect(isRetryableSqlError(err(3024, "ER_QUERY_TIMEOUT"))).toBe(false);
+    expect(isRetryableSqlError(Object.assign(err(1054), { code: "ETIMEDOUT" }))).toBe(false);
   });
 });

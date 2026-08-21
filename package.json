@@ -10,7 +10,9 @@
     "test": "vitest run",
     "setup:state": "node --env-file-if-exists=.env --import tsx scripts/setup-state-db.ts",
     "bootstrap:catalog": "node --env-file-if-exists=.env --import tsx scripts/bootstrap-catalog.ts",
-    "bootstrap:semantics": "node --env-file-if-exists=.env --import tsx scripts/bootstrap-semantics.ts"
+    "bootstrap:semantics": "node --env-file-if-exists=.env --import tsx scripts/bootstrap-semantics.ts",
+    "eval": "node --env-file-if-exists=.env --import tsx scripts/eval-questions.ts",
+    "discover:relationships": "node --env-file-if-exists=.env --import tsx scripts/discover-relationships.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.105.0",

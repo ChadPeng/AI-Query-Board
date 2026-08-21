@@ -3,13 +3,16 @@ import type {
   ChartSpec,
 } from "./types";
 import type {
+  DatasetMatchRequest,
   DescribeTableRequest,
   LearnFromSqlRequest,
   LearnFromSqlResult,
+  LearnedRelationship,
   LLMProvider,
   SavedQuestionMatchRequest,
   SqlChartRequest,
   SqlChartResponse,
+  SuggestRelationshipsRequest,
   TableSelectionRequest,
 } from "./provider";
 import {
@@ -18,12 +21,17 @@ import {
   SAVED_MATCH_SYSTEM,
   DESCRIBE_SYSTEM,
   LEARN_SYSTEM,
+  SUGGEST_REL_SYSTEM,
+  MATCH_DATASET_SYSTEM,
   buildSqlUserPrompt,
   buildSelectUserPrompt,
   buildSavedMatchUserPrompt,
   buildDescribeUserPrompt,
   buildLearnUserPrompt,
+  buildSuggestRelationshipsUserPrompt,
+  buildMatchDatasetUserPrompt,
   coerceLearnResult,
+  coerceSuggestedRelationships,
 } from "./prompts";
 import { sleep, parseJsonLoose, isTransient } from "./util";
 
@@ -121,6 +129,28 @@ export class GeminiProvider implements LLMProvider {
   async learnFromSql(req: LearnFromSqlRequest): Promise<LearnFromSqlResult> {
     const raw = await this.genJson<unknown>(LEARN_SYSTEM, buildLearnUserPrompt(req));
     return coerceLearnResult(raw);
+  }
+
+  async suggestRelationships(req: SuggestRelationshipsRequest): Promise<LearnedRelationship[]> {
+    const raw = await this.genJson<unknown>(
+      SUGGEST_REL_SYSTEM,
+      buildSuggestRelationshipsUserPrompt(req),
+    );
+    return coerceSuggestedRelationships(raw);
+  }
+
+  async matchDataset(req: DatasetMatchRequest): Promise<number | null> {
+    if (req.candidates.length === 0) return null;
+    try {
+      const out = await this.genJson<{ dataset_id?: unknown }>(
+        MATCH_DATASET_SYSTEM,
+        buildMatchDatasetUserPrompt(req),
+      );
+      const id = typeof out.dataset_id === "number" ? out.dataset_id : null;
+      return id != null && req.candidates.some((c) => c.id === id) ? id : null;
+    } catch {
+      return null;
+    }
   }
 
   async describeTable(req: DescribeTableRequest): Promise<string> {

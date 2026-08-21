@@ -62,5 +62,42 @@ describe("connectTables", () => {
     expect(r.tables.sort()).toEqual(["a.x", "a.y"]);
     expect(r.edges).toHaveLength(0);
     expect(r.disconnectedPairs).toEqual([["a.x", "a.y"]]);
+    expect(r.paths).toEqual([]);
+  });
+
+  it("keeps the walked path as ordered JOIN steps with the joining columns", () => {
+    const r = connectTables(["shop.user", "shop.product"], edges);
+    expect(r.paths).toHaveLength(1);
+    const { seedPair, steps } = r.paths[0];
+    expect(seedPair).toEqual(["shop.user", "shop.product"]);
+    // user → orders → order_item → product, each step oriented along the path
+    // with the columns of the (possibly reversed) stored edge.
+    expect(steps).toEqual([
+      { fromTable: "shop.user", fromColumn: "id", toTable: "shop.orders", toColumn: "user_id", reviewed: true },
+      { fromTable: "shop.orders", fromColumn: "id", toTable: "shop.order_item", toColumn: "order_id", reviewed: true },
+      { fromTable: "shop.order_item", fromColumn: "product_id", toTable: "shop.product", toColumn: "id", reviewed: true },
+    ]);
+  });
+
+  it("drops a shorter path fully contained in a longer kept one", () => {
+    // Seeds user + orders + product: the user↔orders path is a prefix of the
+    // user↔product chain — only the long chain should render.
+    const r = connectTables(["shop.user", "shop.orders", "shop.product"], edges);
+    const chains = r.paths.map((p) => p.steps.length);
+    expect(Math.max(...chains)).toBe(3);
+    for (const p of r.paths) {
+      if (p.steps.length === 1) {
+        // any surviving single-hop must not be a hop of the long chain
+        const long = r.paths.find((q) => q.steps.length === 3)!;
+        const longKeys = long.steps.map((s) => `${s.fromTable}>${s.toTable}`);
+        expect(longKeys).not.toContain(`${p.steps[0].fromTable}>${p.steps[0].toTable}`);
+      }
+    }
+  });
+
+  it("prefers a reviewed edge when several connect the same pair", () => {
+    const draft = { ...rel("shop.orders.legacy_uid", "shop.user.id"), reviewed: false };
+    const r = connectTables(["shop.orders", "shop.user"], [draft, edges[0]]);
+    expect(r.paths[0].steps[0]).toMatchObject({ fromColumn: "user_id", reviewed: true });
   });
 });

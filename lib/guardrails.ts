@@ -122,6 +122,27 @@ export function enforceRowLimit(sql: string, max: number = MAX_ROWS): string {
   return `SELECT * FROM (\n${s}\n) AS _guarded LIMIT ${max}`;
 }
 
+/**
+ * SQL errors the engine's repair loop may feed back to the model for another
+ * try. Deliberately a whitelist: these are "the model wrote wrong SQL" errors a
+ * regenerate can plausibly fix. Timeouts (re-running burns another 5s for the
+ * same scan), permission/connection failures, and anything unknown are not.
+ */
+const RETRYABLE_SQL_ERRNOS = new Set([
+  1054, // ER_BAD_FIELD_ERROR — unknown column
+  1146, // ER_NO_SUCH_TABLE — table doesn't exist
+  1064, // ER_PARSE_ERROR — syntax error
+  1052, // ER_NON_UNIQ_ERROR — ambiguous column (common in JOINs)
+  1055, // ER_WRONG_FIELD_WITH_GROUP — only_full_group_by violation
+  1109, // ER_UNKNOWN_TABLE — unknown table in field list
+]);
+
+export function isRetryableSqlError(e: unknown): boolean {
+  if (isTimeoutError(e)) return false;
+  const err = e as { errno?: number } | null;
+  return err?.errno != null && RETRYABLE_SQL_ERRNOS.has(err.errno);
+}
+
 /** Best-effort detection of a statement-timeout error from mysql2. */
 export function isTimeoutError(e: unknown): boolean {
   const err = e as { code?: string; errno?: number } | null;

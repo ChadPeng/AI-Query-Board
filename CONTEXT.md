@@ -53,6 +53,22 @@ _Avoid_: filter, variable, argument
 A user's single authorization tier; higher tiers include everything lower tiers can do. **Super Admin** — the only one who manages users + role assignment and edits system Settings. **Editor** — the "RD"; authors and edits Reports, writes raw SQL, declares parameters and chart specs. **Viewer** — the "operations" user; runs Reports, fills parameters, views, and exports, but cannot author. Before this feature the app had no roles — any authenticated user could do anything.
 _Avoid_: permission, group; don't say "RD"/"ops" in code — use the role name
 
+**Dataset**:
+A named, curated data model an Editor publishes (`dataset` tables): exactly one **base table** plus a join tree walking only many-to-one / one-to-one toward dimension tables (the star-schema restriction, ADR-0006), with **Dimensions** and **Measures** defined on it. Two consumers: the **Explorer** compiles point-and-click queries against it deterministically (zero LLM), and the AI engine, when a question matches a Dataset, reuses its join tree verbatim instead of guessing joins. Joins are **copied** from Relationships at authoring time (with provenance), so a Dataset never silently changes when the global graph does.
+_Avoid_: data source, cube, view, model (alone — say data model or Dataset)
+
+**Dimension**:
+A Dataset field you group or filter by — one column on any table in the model (e.g. 月份, 使用者暱稱). Temporal dimensions accept a query-time **date bucket** (day/week/month/quarter/year); buckets are a query-time transform, never stored as separate fields.
+_Avoid_: group-by column, axis
+
+**Measure**:
+A Dataset field you aggregate — a column on the **base table** plus an aggregation (sum/avg/count/count_distinct/min/max) and an optional business-口徑 condition (raw boolean SQL, editor-trusted like Report SQL, e.g. `o.status = 4` for 營收). The condition wraps the aggregate in `CASE WHEN`, so one Measure means the same number everywhere it's used.
+_Avoid_: metric (in code), KPI, aggregate column
+
+**Explorer**:
+The point-and-click analysis page (`/explore`): pick a Dataset, put a Dimension on X and Measures on Y, add filters — the SQL is compiled deterministically from the model (no LLM, no join guessing) and the result can be pinned to the dashboard as a Saved Chart.
+_Avoid_: query builder, self-service BI (as a code term)
+
 **Setting**:
 A runtime-editable system configuration value stored in the state DB, overriding the `.env` default (precedence: **DB → env → built-in default**). Only a Super Admin edits Settings, and changes apply without a restart. A **Secret Setting** (analytics-DB and LLM credentials) is encrypted at rest and write-only in the UI (masked, never read back). Only the state-DB connection and `AUTH_SECRET` stay exclusively in `.env`.
 _Avoid_: config, env var, preference

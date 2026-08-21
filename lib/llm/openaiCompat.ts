@@ -1,12 +1,15 @@
 import type { ChartSpec } from "./types";
 import type {
+  DatasetMatchRequest,
   DescribeTableRequest,
   LearnFromSqlRequest,
   LearnFromSqlResult,
+  LearnedRelationship,
   LLMProvider,
   SavedQuestionMatchRequest,
   SqlChartRequest,
   SqlChartResponse,
+  SuggestRelationshipsRequest,
   TableSelectionRequest,
 } from "./provider";
 import {
@@ -15,12 +18,17 @@ import {
   SAVED_MATCH_SYSTEM,
   DESCRIBE_SYSTEM,
   LEARN_SYSTEM,
+  SUGGEST_REL_SYSTEM,
+  MATCH_DATASET_SYSTEM,
   buildSqlUserPrompt,
   buildSelectUserPrompt,
   buildSavedMatchUserPrompt,
   buildDescribeUserPrompt,
   buildLearnUserPrompt,
+  buildSuggestRelationshipsUserPrompt,
+  buildMatchDatasetUserPrompt,
   coerceLearnResult,
+  coerceSuggestedRelationships,
 } from "./prompts";
 import { sleep, parseJsonLoose, isTransient } from "./util";
 
@@ -123,6 +131,26 @@ export class OpenAICompatibleProvider implements LLMProvider {
       await this.chat(LEARN_SYSTEM, buildLearnUserPrompt(req), true),
     );
     return coerceLearnResult(raw);
+  }
+
+  async suggestRelationships(req: SuggestRelationshipsRequest): Promise<LearnedRelationship[]> {
+    const raw = parseJsonLoose(
+      await this.chat(SUGGEST_REL_SYSTEM, buildSuggestRelationshipsUserPrompt(req), true),
+    );
+    return coerceSuggestedRelationships(raw);
+  }
+
+  async matchDataset(req: DatasetMatchRequest): Promise<number | null> {
+    if (req.candidates.length === 0) return null;
+    try {
+      const out = parseJsonLoose(
+        await this.chat(MATCH_DATASET_SYSTEM, buildMatchDatasetUserPrompt(req), true),
+      ) as { dataset_id?: unknown };
+      const id = typeof out.dataset_id === "number" ? out.dataset_id : null;
+      return id != null && req.candidates.some((c) => c.id === id) ? id : null;
+    } catch {
+      return null;
+    }
   }
 
   async describeTable(req: DescribeTableRequest): Promise<string> {

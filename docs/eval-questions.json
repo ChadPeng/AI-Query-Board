@@ -1,0 +1,17 @@
+{
+  "readme": "JOIN 可靠性評測集：收集真實失敗過（或曾答錯）的問題。expectTables 填期望 stage-1 至少選中的表（schema-qualified），留空陣列＝只驗證能跑通。跑法：npm run eval（scripts/eval-questions.ts）。每次改動檢索/prompt/修復邏輯後跑一次，對比命中率與修復次數。",
+  "questions": [
+    {
+      "question": "給我2026/06的訂單營收TOP10的使用者排行榜",
+      "expectTables": ["mepay.orders", "mepay.user_profiles"]
+    },
+    {
+      "question": "最近30天每天的完成訂單數趨勢",
+      "expectTables": ["mepay.orders"]
+    },
+    {
+      "question": "2026年7月訂單最多的前10個商店",
+      "expectTables": ["mepay.orders", "mepay.shops"]
+    }
+  ]
+}

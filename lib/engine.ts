@@ -8,20 +8,29 @@ import {
   checkBlockedIdentifiers,
   checkBlockedResultColumns,
   isReadOnly,
+  isRetryableSqlError,
   isTimeoutError,
   GuardrailError,
 } from "./guardrails";
+import { supplementDdlForSqlError } from "./schema/repairSupplement";
 import { executeGuarded } from "./analytics/execute";
 import {
   normalizeQuestion,
   findExactSavedQuery,
   listSavedQuestions,
+  listSavedQueryExamples,
   getSavedQueryById,
   type SavedQueryHit,
 } from "./state/savedQueries";
-import { referencedFields, type EngineResult } from "./llm/types";
+import { pickFewShotExamples, type FewShotExample } from "./fewshot";
+import { tryResolveDatasetSchema } from "./schema/datasetSchema";
+import { recordQueryFailure } from "./state/queryFailures";
+import { referencedFields, type EngineFailure, type EngineResult } from "./llm/types";
 
-const MAX_ATTEMPTS = 2; // first try + one repair round
+// First try + up to two repair rounds. Chart-mismatch and SQL-error repairs
+// share the same budget, bounding worst-case latency (each retry is one more
+// LLM call).
+const MAX_ATTEMPTS = 3;
 
 function errMsg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
@@ -82,8 +91,9 @@ async function executeReused(hit: SavedQueryHit): Promise<EngineResult | null> {
 
 /**
  * The slice-02 engine (PRD §3): question -> {SQL, chart_spec} via structured
- * output -> run read-only -> validate the spec's referenced columns exist in
- * the result -> repair once if not -> return rows + spec for rendering.
+ * output -> run read-only -> validate + self-repair (MySQL execution errors
+ * and chart/result mismatches both feed back into regeneration, sharing the
+ * MAX_ATTEMPTS budget) -> return rows + spec for rendering.
  */
 export interface RunEngineOptions {
   userId?: number;
@@ -96,6 +106,18 @@ export async function runEngine(
   opts: RunEngineOptions = {},
 ): Promise<EngineResult> {
   const { userId, history = [] } = opts;
+
+  // Failure telemetry (第二波，選配): every failed answer is a curation lead.
+  // recordQueryFailure never throws; awaiting keeps it alive on serverless.
+  const fail = async (
+    stage: string,
+    error: string,
+    sql?: string,
+    errno?: number,
+  ): Promise<EngineFailure> => {
+    await recordQueryFailure({ userId, question, stage, sql, errno, errorMsg: error });
+    return { ok: false, error, sql };
+  };
 
   // Provider + analytics pool are resolved from Settings (docs/adr/0005) and
   // rebuilt if a Super-Admin changed them — no restart needed.
@@ -118,16 +140,33 @@ export async function runEngine(
     }
   }
 
-  // Resolve the schema ONCE (two-stage retrieval) — it doesn't change between
-  // repair attempts, and stage-1 selection is an extra LLM call we shouldn't repeat.
+  // Resolve the schema ONCE — it doesn't change between repair attempts.
+  // Dataset-first (BI 第四波): a curated Dataset match skips stage-1 selection
+  // and graph-connect entirely; a miss falls through to two-stage retrieval.
   let schema;
   try {
-    schema = await resolveSchemaForQuestion(question, provider);
+    schema =
+      (await tryResolveDatasetSchema(question, provider)) ??
+      (await resolveSchemaForQuestion(question, provider));
   } catch (e) {
     if (e instanceof NoRelevantTablesError) {
-      return { ok: false, error: e.message };
+      return fail("retrieval", e.message);
     }
-    return { ok: false, error: `挑選資料表失敗：${errMsg(e)}` };
+    return fail("retrieval", `挑選資料表失敗：${errMsg(e)}`);
+  }
+
+  // Few-shot (第二波): confirmed same-table question→SQL pairs as demonstrations.
+  let examples: FewShotExample[] = [];
+  if (userId != null) {
+    try {
+      examples = pickFewShotExamples(
+        question,
+        schema.tables,
+        await listSavedQueryExamples(userId),
+      );
+    } catch {
+      /* best-effort — generation proceeds without examples */
+    }
   }
 
   // Repair context for the next attempt; undefined on the first try.
@@ -143,18 +182,20 @@ export async function runEngine(
         schemaDDL: schema.ddl,
         rules: schema.rules,
         relationships: schema.relationships,
-        disconnectedPairs: schema.disconnectedPairs,
+        joinPaths: schema.joinPaths,
+        disconnected: schema.disconnected,
         history,
+        examples: examples.length > 0 ? examples : undefined,
         repair,
       });
     } catch (e) {
-      return { ok: false, error: `產生 SQL 失敗：${errMsg(e)}`, sql: lastSql };
+      return fail("generate", `產生 SQL 失敗：${errMsg(e)}`, lastSql);
     }
     lastSql = gen.sql;
 
     // 2. read-only guard
     if (!isReadOnly(gen.sql)) {
-      return { ok: false, error: "只允許單一 SELECT 查詢", sql: gen.sql };
+      return fail("readonly", "只允許單一 SELECT 查詢", gen.sql);
     }
 
     // 2b. blacklist (pre-execution): blocked tables / explicitly-named columns
@@ -162,7 +203,7 @@ export async function runEngine(
       checkBlockedIdentifiers(gen.sql);
     } catch (e) {
       if (e instanceof GuardrailError) {
-        return { ok: false, error: e.message, sql: gen.sql };
+        return fail("guardrail", e.message, gen.sql);
       }
       throw e;
     }
@@ -173,13 +214,36 @@ export async function runEngine(
       result = await executeGuarded(gen.sql);
     } catch (e) {
       if (isTimeoutError(e)) {
-        return {
-          ok: false,
-          error: "查詢逾時（可能掃描了過多資料），請縮小時間範圍或條件後再試",
-          sql: gen.sql,
-        };
+        return fail(
+          "timeout",
+          "查詢逾時（可能掃描了過多資料），請縮小時間範圍或條件後再試",
+          gen.sql,
+        );
       }
-      return { ok: false, error: `查詢執行失敗：${errMsg(e)}`, sql: gen.sql };
+      // Self-repair: feed the MySQL error back to the model (whitelisted
+      // "the model wrote wrong SQL" errors only). For unknown column/table,
+      // deterministically look up the table that has it and add its DDL.
+      if (attempt < MAX_ATTEMPTS && isRetryableSqlError(e)) {
+        // Leave a trace of the repair round (stats split repair_* from real
+        // failures) — a recovered query still tells us what the model got wrong.
+        await recordQueryFailure({
+          userId,
+          question,
+          stage: "repair_sql",
+          sql: gen.sql,
+          errno: (e as { errno?: number } | null)?.errno,
+          errorMsg: errMsg(e),
+        });
+        repair = {
+          kind: "sql_error",
+          previousSql: gen.sql,
+          errorMessage: errMsg(e),
+          addedDdl: await supplementDdlForSqlError(e, schema.tables),
+        };
+        continue;
+      }
+      const errno = (e as { errno?: number } | null)?.errno;
+      return fail("execute", `查詢執行失敗：${errMsg(e)}`, gen.sql, errno);
     }
 
     // 3b. blacklist (post-execution): blocked columns surfaced via SELECT *
@@ -187,7 +251,7 @@ export async function runEngine(
       checkBlockedResultColumns(result.columns);
     } catch (e) {
       if (e instanceof GuardrailError) {
-        return { ok: false, error: e.message, sql: gen.sql };
+        return fail("guardrail", e.message, gen.sql);
       }
       throw e;
     }
@@ -197,6 +261,16 @@ export async function runEngine(
       (f) => !result.columns.includes(f),
     );
     if (missing.length === 0) {
+      // Surface knowledge gaps: tables the graph couldn't connect mean the
+      // model had to guess the join — nudge the human curation loop.
+      const warnings =
+        schema.disconnected.length > 0
+          ? [
+              `知識庫中沒有連接這些表的關係：${schema.disconnected
+                .map(({ pair: [a, b] }) => `${a} ↔ ${b}`)
+                .join("、")}。若結果不對，到「語意層」補上關係可提高準確度。`,
+            ]
+          : undefined;
       return {
         ok: true,
         sql: gen.sql,
@@ -206,20 +280,26 @@ export async function runEngine(
         rows: result.rows,
         repaired: attempt - 1,
         tablesUsed: schema.tables,
+        datasetUsed: schema.datasetName,
+        warnings,
       };
     }
 
     // 5. set up a repair round
+    await recordQueryFailure({
+      userId,
+      question,
+      stage: "repair_chart",
+      sql: gen.sql,
+      errorMsg: `chart_spec 引用了結果中不存在的欄位：${missing.join(", ")}`,
+    });
     repair = {
+      kind: "chart_mismatch",
       previousSql: gen.sql,
       actualColumns: result.columns,
       missingFields: missing,
     };
   }
 
-  return {
-    ok: false,
-    error: "AI 產生的圖表欄位與查詢結果對不上，修正後仍失敗",
-    sql: lastSql,
-  };
+  return fail("chart_repair", "AI 產生的圖表欄位與查詢結果對不上，修正後仍失敗", lastSql);
 }

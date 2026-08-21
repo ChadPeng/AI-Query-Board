@@ -57,7 +57,7 @@ export function createProviderFromConfig(cfg: ProviderConfig): LLMProvider {
     case "ollama":
       return new OpenAICompatibleProvider({
         baseUrl: cfg.ollamaBaseUrl || "http://localhost:11434/v1",
-        apiKey: "ollama",
+        apiKey: cfg.ollamaKey || "ollama", // cloud needs a real key; local ignores it
         model: cfg.ollamaModel || "qwen2.5-coder:7b",
       });
     case "openai-compat":

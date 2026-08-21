@@ -68,18 +68,26 @@ describe("formatRelationships", () => {
 });
 
 describe("buildSqlUserPrompt", () => {
-  it("includes DDL, rules, relationships and the disconnected note", () => {
+  it("includes DDL, rules, relationships, join paths and the disconnected note", () => {
     const p = buildSqlUserPrompt({
       question: "當月賣最好的創作者",
       schemaDDL: "CREATE TABLE shop.orders (...)",
       rules: [termRule, tableRule],
       relationships: [edge],
-      disconnectedPairs: [["shop.a", "shop.b"]],
+      joinPaths: [
+        [
+          { fromTable: "shop.orders", fromColumn: "user_id", toTable: "shop.user", toColumn: "id", reviewed: true },
+        ],
+      ],
+      disconnected: [{ pair: ["shop.a", "shop.b"], sharedColumns: ["user_id"] }],
     });
     expect(p).toContain("CREATE TABLE shop.orders");
     expect(p).toContain("Semantic rules");
     expect(p).toContain("Table relationships");
+    expect(p).toContain("Verified JOIN paths");
+    expect(p).toContain("JOIN `shop.user` ON shop.orders.user_id = shop.user.id");
     expect(p).toContain("shop.a ↔ shop.b");
+    expect(p).toContain("both tables have column(s) user_id");
     expect(p).toContain("當月賣最好的創作者");
   });
 
@@ -87,7 +95,39 @@ describe("buildSqlUserPrompt", () => {
     const p = buildSqlUserPrompt({ question: "q", schemaDDL: "DDL" });
     expect(p).not.toContain("Semantic rules");
     expect(p).not.toContain("Table relationships");
-    expect(p).not.toContain("no known relationship");
+    expect(p).not.toContain("Verified JOIN paths");
+    expect(p).not.toContain("no verified relationship");
+  });
+
+  it("renders the sql_error repair block with the MySQL error and added DDL", () => {
+    const p = buildSqlUserPrompt({
+      question: "q",
+      schemaDDL: "DDL",
+      repair: {
+        kind: "sql_error",
+        previousSql: "SELECT bad",
+        errorMessage: "Unknown column 'bad' in 'field list'",
+        addedDdl: "CREATE TABLE `shop`.`extra` (`x` int)",
+      },
+    });
+    expect(p).toContain("failed with a MySQL error");
+    expect(p).toContain("Unknown column 'bad'");
+    expect(p).toContain("CREATE TABLE `shop`.`extra`");
+  });
+
+  it("marks a join path unconfirmed when any step is unreviewed", () => {
+    const p = buildSqlUserPrompt({
+      question: "q",
+      schemaDDL: "DDL",
+      joinPaths: [
+        [
+          { fromTable: "a.t1", fromColumn: "x", toTable: "a.t2", toColumn: "id", reviewed: true },
+          { fromTable: "a.t2", fromColumn: "y", toTable: "a.t3", toColumn: "id", reviewed: false },
+        ],
+      ],
+    });
+    const line = p.split("\n").find((l) => l.includes("JOIN `a.t3`"))!;
+    expect(line).toContain("（未確認）");
   });
 });
 

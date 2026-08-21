@@ -116,6 +116,23 @@ export async function getCreateTable(
   return typeof ddl === "string" ? ddl : "";
 }
 
+/** A few DISTINCT non-null values of one column — for relationship discovery. */
+export async function sampleDistinctValues(
+  schema: string,
+  table: string,
+  column: string,
+  limit = 3,
+): Promise<string[]> {
+  const [rows] = (await pool().query(
+    `SELECT DISTINCT ${ident(column)} AS v
+       FROM ${ident(schema)}.${ident(table)}
+      WHERE ${ident(column)} IS NOT NULL
+      LIMIT ?`,
+    [limit],
+  )) as [RowDataPacket[], unknown];
+  return rows.map((r) => String(r.v).slice(0, 40));
+}
+
 export async function sampleRows(
   schema: string,
   table: string,
