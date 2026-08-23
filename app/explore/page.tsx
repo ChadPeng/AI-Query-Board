@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Chart, type ChartHandle } from "../components/Chart";
 import { AppShell } from "../components/Sidebar";
 import type { ChartSpec, ChartType } from "@/lib/llm/types";
@@ -62,9 +62,13 @@ export default function ExplorePage() {
   const [datasets, setDatasets] = useState<DatasetMeta[]>([]);
   const [model, setModel] = useState<DatasetModel | null>(null);
   const [dimId, setDimId] = useState<number | "">("");
+  const [dim2Id, setDim2Id] = useState<number | "">(""); // 顏色/系列（第二維度）
   const [bucket, setBucket] = useState<DateBucket | "">("");
   const [measureIds, setMeasureIds] = useState<number[]>([]);
   const [filters, setFilters] = useState<FilterRow[]>([]);
+  const [sortBy, setSortBy] = useState<string>(""); // "" | "dim" | "m:<fieldId>"
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [limit, setLimit] = useState(500);
   const [chartType, setChartType] = useState<ChartType>("bar");
   const [result, setResult] = useState<RunResult | null>(null);
   const [spec, setSpec] = useState<ChartSpec | null>(null);
@@ -86,7 +90,10 @@ export default function ExplorePage() {
   );
   const measures = useMemo(() => model?.fields.filter((f) => f.kind === "measure") ?? [], [model]);
   const dimField: DatasetFieldDef | undefined = dimensions.find((f) => f.id === dimId);
+  const dim2Field: DatasetFieldDef | undefined = dimensions.find((f) => f.id === dim2Id);
   const isTemporal = dimField?.dataType ? TEMPORAL_TYPES.has(dimField.dataType) : false;
+  // 顏色維度只在「一個 X 維度＋恰好一個度量」時有意義（樞紐成多序列）
+  const canUseDim2 = dimId !== "" && measureIds.length === 1 && dimensions.length > 1;
 
   async function pickDataset(id: string) {
     setModel(null);
@@ -94,9 +101,12 @@ export default function ExplorePage() {
     setSpec(null);
     setError(null);
     setDimId("");
+    setDim2Id("");
     setBucket("");
     setMeasureIds([]);
     setFilters([]);
+    setSortBy("");
+    setLimit(500);
     if (!id) return;
     const res = await fetch(`/api/datasets/${id}`);
     const d = await res.json();
@@ -108,19 +118,38 @@ export default function ExplorePage() {
   }
 
   function toggleMeasure(id: number) {
-    setMeasureIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+    setMeasureIds((prev) => {
+      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+      if (next.length !== 1) setDim2Id(""); // 顏色維度需要恰好一個度量
+      if (!next.includes(id) && sortBy === `m:${id}`) setSortBy("");
+      return next;
+    });
   }
 
-  function buildQuery(): ExplorerQuery | string {
-    if (!model) return "請先選資料模型";
-    if (dimId === "" && measureIds.length === 0) return "至少選一個維度或度量";
+  /** 組出目前選擇對應的查詢；不完整的篩選列直接略過（即時出圖時不打斷使用者輸入）。 */
+  const buildQuery = useCallback((): ExplorerQuery | null => {
+    if (!model) return null;
+    if (dimId === "" && measureIds.length === 0) return null;
+    const dims: ExplorerQuery["dimensions"] = [];
+    if (dimId !== "") {
+      dims.push({ fieldId: dimId, dateBucket: isTemporal && bucket ? bucket : undefined });
+      if (dim2Id !== "" && dim2Id !== dimId && measureIds.length === 1) {
+        dims.push({ fieldId: dim2Id });
+      }
+    }
+    let sort: ExplorerQuery["sort"];
+    if (sortBy === "dim" && dimId !== "") {
+      sort = { by: "dimension", dir: sortDir };
+    } else if (sortBy.startsWith("m:")) {
+      const idx = measureIds.indexOf(Number(sortBy.slice(2)));
+      if (idx >= 0) sort = { by: idx, dir: sortDir };
+    }
     const query: ExplorerQuery = {
-      dimensions:
-        dimId === ""
-          ? []
-          : [{ fieldId: dimId, dateBucket: isTemporal && bucket ? bucket : undefined }],
+      dimensions: dims,
       measures: measureIds.map((fieldId) => ({ fieldId })),
       filters: [],
+      sort,
+      limit,
     };
     for (const f of filters) {
       if (f.fieldId === 0) continue;
@@ -128,26 +157,49 @@ export default function ExplorePage() {
       let values: (string | number)[];
       if (op.values === "list") {
         values = f.v1.split(",").map((s) => s.trim()).filter(Boolean);
-        if (values.length === 0) return "「屬於」篩選至少要一個值";
+        if (values.length === 0) continue;
       } else if (op.values === 2) {
-        if (!f.v1 || !f.v2) return "「介於」篩選需要兩個值";
+        if (!f.v1 || !f.v2) continue;
         values = [f.v1, f.v2];
       } else {
-        if (!f.v1) return "篩選缺少值";
+        if (!f.v1) continue;
         values = [f.v1];
       }
       query.filters.push({ fieldId: f.fieldId, op: f.op, values });
     }
     return query;
-  }
+  }, [model, dimId, dim2Id, measureIds, filters, isTemporal, bucket, sortBy, sortDir, limit]);
 
-  async function run() {
+  const buildSpec = useCallback(
+    (columns: string[], type: ChartType): ChartSpec | null => {
+      if (!model) return null;
+      const dimName = dimField?.name;
+      const yNames = measureIds
+        .map((id) => measures.find((m) => m.id === id)?.name)
+        .filter((n): n is string => !!n);
+      return {
+        chart_type: dimName && yNames.length > 0 ? type : "table",
+        x: dimName ?? columns[0] ?? "",
+        y: yNames.length > 0 ? yNames : columns.slice(1),
+        title: `${model.name}${dimName ? `：${yNames.join("、")}・依${dimName}` : ""}`,
+        aggregation: "none",
+      };
+    },
+    [model, dimField, measureIds, measures],
+  );
+
+  // 防競態：只採用最後一次送出的查詢結果
+  const runSeq = useRef(0);
+
+  const run = useCallback(async () => {
     if (!model) return;
     const query = buildQuery();
-    if (typeof query === "string") {
-      setError(query);
+    if (!query) {
+      setResult(null);
+      setSpec(null);
       return;
     }
+    const seq = ++runSeq.current;
     setBusy(true);
     setError(null);
     setMsg(null);
@@ -158,39 +210,92 @@ export default function ExplorePage() {
         body: JSON.stringify({ query }),
       });
       const d = await res.json();
+      if (seq !== runSeq.current) return; // 已有更新的查詢在跑
       if (!res.ok) {
         setError(d.error ?? "查詢失敗");
         return;
       }
       setResult({ columns: d.columns, rows: d.rows, sql: d.sql });
-      const dimName = dimField?.name;
-      const yNames = measureIds
-        .map((id) => measures.find((m) => m.id === id)?.name)
-        .filter((n): n is string => !!n);
-      setSpec({
-        chart_type: dimName && yNames.length > 0 ? chartType : "table",
-        x: dimName ?? d.columns[0] ?? "",
-        y: yNames.length > 0 ? yNames : d.columns.slice(1),
-        title: `${model.name}${dimName ? `：${yNames.join("、")}・依${dimName}` : ""}`,
-        aggregation: "none",
-      });
+      setSpec(buildSpec(d.columns, chartType));
     } finally {
-      setBusy(false);
+      if (seq === runSeq.current) setBusy(false);
     }
-  }
+  }, [model, buildQuery, buildSpec, chartType]);
+
+  // 即時出圖：選擇一變就自動查詢（查詢由模型確定性編譯，成本低），400ms 防抖
+  useEffect(() => {
+    if (!model) return;
+    const t = setTimeout(run, 400);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [model, dimId, dim2Id, bucket, measureIds, filters, sortBy, sortDir, limit]);
+
+  // 切換圖表類型不重查——直接以現有結果重建圖表規格
+  useEffect(() => {
+    if (result) setSpec(buildSpec(result.columns, chartType));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chartType]);
+
+  // 顏色維度：把「X×顏色→值」的長表在前端樞紐成多序列（同 Tableau 的 Color）。
+  // 系列取總量前 5 名（配色只驗證過 5 色，不循環重複），其餘略過並提示。
+  const pivot = useMemo(() => {
+    if (!result || !spec || !model) return null;
+    if (dim2Id === "" || !dimField || !dim2Field || measureIds.length !== 1) return null;
+    if (spec.chart_type === "table" || spec.chart_type === "pie") return null;
+    const mName = measures.find((m) => m.id === measureIds[0])?.name;
+    if (!mName) return null;
+    const d1 = dimField.name;
+    const d2 = dim2Field.name;
+    const xs: string[] = [];
+    const xSeen = new Set<string>();
+    const totals = new Map<string, number>();
+    for (const r of result.rows) {
+      const x = String(r[d1] ?? "");
+      if (!xSeen.has(x)) {
+        xSeen.add(x);
+        xs.push(x);
+      }
+      const s = String(r[d2] ?? "");
+      totals.set(s, (totals.get(s) ?? 0) + Math.abs(Number(r[mName]) || 0));
+    }
+    const seriesAll = [...totals.entries()].sort((a, b) => b[1] - a[1]).map(([s]) => s);
+    const series = seriesAll.slice(0, 5);
+    const sSet = new Set(series);
+    const byX = new Map<string, Record<string, unknown>>(xs.map((x) => [x, { [d1]: x }]));
+    for (const r of result.rows) {
+      const s = String(r[d2] ?? "");
+      if (!sSet.has(s)) continue;
+      byX.get(String(r[d1] ?? ""))![s] = Number(r[mName]) || 0;
+    }
+    return {
+      columns: [d1, ...series],
+      rows: xs.map((x) => byX.get(x)!),
+      spec: {
+        ...spec,
+        x: d1,
+        y: series,
+        title: `${model.name}：${mName}・依${d1}×${d2}`,
+      } as ChartSpec,
+      dropped: seriesAll.length - series.length,
+    };
+  }, [result, spec, model, dim2Id, dimField, dim2Field, measureIds, measures]);
+
+  const displaySpec = pivot ? pivot.spec : spec;
+  const displayColumns = pivot ? pivot.columns : result?.columns ?? [];
+  const displayRows = pivot ? pivot.rows : result?.rows ?? [];
 
   async function pin() {
-    if (!result || !spec || !model) return;
+    if (!result || !displaySpec || !model) return;
     const res = await fetch("/api/dashboard", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        title: spec.title,
-        chartSpec: spec,
-        columns: result.columns,
-        rows: result.rows,
+        title: displaySpec.title,
+        chartSpec: displaySpec,
+        columns: displayColumns,
+        rows: displayRows,
         sql: result.sql,
-        question: `（探索）${spec.title}`,
+        question: `（探索）${displaySpec.title}`,
       }),
     });
     setMsg(res.ok ? "已釘上儀表板" : "釘選失敗");
@@ -241,7 +346,9 @@ export default function ExplorePage() {
                   className={`field-row ${dimId === "" ? "selected" : ""}`}
                   onClick={() => {
                     setDimId("");
+                    setDim2Id("");
                     setBucket("");
+                    if (sortBy === "dim") setSortBy("");
                   }}
                 >
                   <span className="grow">不分組（只看總計）</span>
@@ -253,6 +360,7 @@ export default function ExplorePage() {
                     className={`field-row ${dimId === f.id ? "selected" : ""}`}
                     onClick={() => {
                       setDimId(f.id!);
+                      if (dim2Id === f.id) setDim2Id("");
                       setBucket("");
                     }}
                   >
@@ -328,6 +436,72 @@ export default function ExplorePage() {
                   </div>
                 )}
 
+                {canUseDim2 && (
+                  <div className="config-group">
+                    <span className="cg-label">顏色</span>
+                    <select
+                      className="kn-select"
+                      value={dim2Id}
+                      onChange={(e) => {
+                        const v = e.target.value === "" ? "" : Number(e.target.value);
+                        if (v !== "" && chartType === "pie") setChartType("bar");
+                        setDim2Id(v);
+                      }}
+                    >
+                      <option value="">（無）</option>
+                      {dimensions
+                        .filter((f) => f.id !== dimId)
+                        .map((f) => (
+                          <option key={f.id} value={f.id}>
+                            {f.name}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                )}
+
+                <div className="config-group">
+                  <span className="cg-label">排序</span>
+                  <select className="kn-select" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+                    <option value="">預設</option>
+                    {dimId !== "" && dimField && <option value="dim">依{dimField.name}</option>}
+                    {measureIds.map((id) => {
+                      const m = measures.find((x) => x.id === id);
+                      return m ? (
+                        <option key={id} value={`m:${id}`}>
+                          依{m.name}
+                        </option>
+                      ) : null;
+                    })}
+                  </select>
+                  {sortBy !== "" && (
+                    <div className="seg-control inner">
+                      <button type="button" className={`seg ${sortDir === "desc" ? "active" : ""}`} onClick={() => setSortDir("desc")}>
+                        大→小
+                      </button>
+                      <button type="button" className={`seg ${sortDir === "asc" ? "active" : ""}`} onClick={() => setSortDir("asc")}>
+                        小→大
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                <div className="config-group">
+                  <span className="cg-label">筆數上限</span>
+                  <div className="seg-control inner">
+                    {[100, 500, 1000, 5000].map((n) => (
+                      <button
+                        key={n}
+                        type="button"
+                        className={`seg ${limit === n ? "active" : ""}`}
+                        onClick={() => setLimit(n)}
+                      >
+                        {n.toLocaleString("en-US")}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <div style={{ flex: 1 }} />
 
                 <div className="seg-control">
@@ -336,18 +510,26 @@ export default function ExplorePage() {
                       key={t.value}
                       type="button"
                       className={`seg ${chartType === t.value ? "active" : ""}`}
-                      onClick={() => setChartType(t.value)}
+                      onClick={() => {
+                        if (t.value === "pie" && dim2Id !== "") {
+                          setDim2Id("");
+                          setMsg("圓餅圖不支援顏色維度，已自動移除");
+                        }
+                        setChartType(t.value);
+                      }}
                     >
                       {t.label}
                     </button>
                   ))}
                 </div>
 
-                <button type="button" className="btn btn-primary" onClick={run} disabled={busy}>
+                {busy && <span className="kn-note">查詢中…</span>}
+                <button type="button" className="btn" onClick={run} disabled={busy} title="重新查詢一次">
                   <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
-                    <path d="M4 2.5L13 8L4 13.5V2.5Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" fill="currentColor" />
+                    <path d="M13.5 8C13.5 11 11 13.5 8 13.5C5 13.5 2.5 11 2.5 8C2.5 5 5 2.5 8 2.5C10.2 2.5 12.1 3.8 13 5.7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                    <path d="M13.5 2.5V6H10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
-                  {busy ? "查詢中…" : "執行"}
+                  重新整理
                 </button>
               </div>
 
@@ -422,14 +604,16 @@ export default function ExplorePage() {
           )}
 
           {model && !result && !error && (
-            <div className="empty">選好維度與度量後，按右上角「執行」出圖</div>
+            <div className="empty">點選左側的維度或度量，圖會即時更新</div>
           )}
 
-          {result && spec && (
+          {result && displaySpec && (
             <div className="chart-card preview">
               <div className="card-bar">
                 <span className="badge" style={{ color: "var(--text-dim)" }}>
                   {result.rows.length} 列・確定性查詢（未經 AI）
+                  {result.rows.length >= limit && `・已達筆數上限 ${limit.toLocaleString("en-US")}`}
+                  {pivot && pivot.dropped > 0 && `・顏色僅顯示前 5 個系列（略過 ${pivot.dropped} 個）`}
                 </span>
                 <span className="header-actions">
                   <button type="button" className="pin" onClick={pin}>
@@ -440,7 +624,7 @@ export default function ExplorePage() {
                   </button>
                 </span>
               </div>
-              <Chart ref={chartRef} spec={spec} columns={result.columns} rows={result.rows} />
+              <Chart ref={chartRef} spec={displaySpec} columns={displayColumns} rows={displayRows} />
               <details className="sql">
                 <summary>檢視編譯出的 SQL</summary>
                 <pre>{result.sql}</pre>

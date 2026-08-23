@@ -75,7 +75,7 @@ export type FilterOp = "eq" | "neq" | "in" | "between" | "gte" | "lte" | "contai
 
 /** What the Explorer sends to run: field ids + transforms, never SQL. */
 export interface ExplorerQuery {
-  /** phase 1: at most one dimension */
+  /** 至多兩個維度：第一個是 X 軸、第二個是顏色/系列（前端樞紐成多序列） */
   dimensions: { fieldId: number; dateBucket?: DateBucket }[];
   measures: { fieldId: number }[];
   /** phase 1: filters bind to dimension-kind fields only */

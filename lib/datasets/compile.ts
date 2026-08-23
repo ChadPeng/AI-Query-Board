@@ -154,9 +154,12 @@ export function compileExplorerQuery(model: DatasetModel, q: ExplorerQuery): Com
   if (violations.length > 0) {
     throw new Error(`模型不合法：${violations.join("；")}`);
   }
-  if (q.dimensions.length > 1) throw new Error("目前僅支援一個維度（X 軸）");
+  if (q.dimensions.length > 2) throw new Error("最多支援兩個維度（X 軸＋顏色/系列）");
   if (q.dimensions.length === 0 && q.measures.length === 0) {
     throw new Error("至少要選一個維度或度量");
+  }
+  if (new Set(q.dimensions.map((d) => d.fieldId)).size !== q.dimensions.length) {
+    throw new Error("兩個維度不能是同一個欄位");
   }
 
   const fieldById = new Map(model.fields.map((f) => [f.id!, f]));
@@ -169,14 +172,14 @@ export function compileExplorerQuery(model: DatasetModel, q: ExplorerQuery): Com
     return f;
   };
 
-  const dim = q.dimensions[0] ? getField(q.dimensions[0].fieldId, "dimension") : null;
+  const dims = q.dimensions.map((d) => ({ spec: d, field: getField(d.fieldId, "dimension") }));
   const measures = q.measures.map((m) => getField(m.fieldId, "measure"));
   const filters = q.filters.map((flt) => ({ ...flt, field: getField(flt.fieldId, "dimension") }));
 
   // JOIN pruning: only tables actually referenced (plus their parent chains).
   const base = baseTable(model.tables);
   const used = new Set<string>([base.alias]);
-  if (dim) used.add(dim.tableAlias);
+  for (const d of dims) used.add(d.field.tableAlias);
   for (const m of measures) used.add(m.tableAlias);
   for (const f of filters) used.add(f.field.tableAlias);
   const needed = neededAliases(model, used);
@@ -184,12 +187,13 @@ export function compileExplorerQuery(model: DatasetModel, q: ExplorerQuery): Com
   // SELECT list
   const select: string[] = [];
   const columns: { key: string; label: string }[] = [];
-  let dimExpr: string | null = null;
-  if (dim) {
-    const raw = columnExpr(dim.tableAlias, dim.columnName!);
-    dimExpr = q.dimensions[0].dateBucket ? bucketExpr(raw, q.dimensions[0].dateBucket) : raw;
-    select.push(`${dimExpr} AS ${ident(dim.name)}`);
-    columns.push({ key: dim.name, label: dim.name });
+  const dimExprs: string[] = [];
+  for (const d of dims) {
+    const raw = columnExpr(d.field.tableAlias, d.field.columnName!);
+    const expr = d.spec.dateBucket ? bucketExpr(raw, d.spec.dateBucket) : raw;
+    dimExprs.push(expr);
+    select.push(`${expr} AS ${ident(d.field.name)}`);
+    columns.push({ key: d.field.name, label: d.field.name });
   }
   for (const m of measures) {
     select.push(`${measureExpr(m)} AS ${ident(m.name)}`);
@@ -244,25 +248,28 @@ export function compileExplorerQuery(model: DatasetModel, q: ExplorerQuery): Com
 
   // assemble
   const lines: string[] = [];
-  const distinct = dim && measures.length === 0 ? "DISTINCT " : "";
+  const distinct = dims.length > 0 && measures.length === 0 ? "DISTINCT " : "";
   lines.push(`SELECT ${distinct}${select.join(", ")}`);
   lines.push(`FROM ${ident(base.schema)}.${ident(base.table)} AS ${ident(base.alias)}`);
   lines.push(...buildJoins(model, needed));
   if (where.length > 0) lines.push(`WHERE ${where.join(" AND ")}`);
-  if (dim && measures.length > 0) lines.push(`GROUP BY ${dimExpr}`);
+  if (dims.length > 0 && measures.length > 0) lines.push(`GROUP BY ${dimExprs.join(", ")}`);
 
-  // ORDER BY: explicit sort > dimension ASC (time series read naturally)
+  // ORDER BY: explicit sort > dimensions ASC (time series read naturally).
+  // "dimension" sorts by the FIRST dimension (the X axis); the second (colour/
+  // series) always tags along ASC so pivoted series come out in stable order.
   if (q.sort) {
     if (q.sort.by === "dimension") {
-      if (!dim) throw new Error("沒有維度可排序");
-      lines.push(`ORDER BY ${dimExpr} ${q.sort.dir === "desc" ? "DESC" : "ASC"}`);
+      if (dims.length === 0) throw new Error("沒有維度可排序");
+      const rest = dimExprs.slice(1).map((e) => `${e} ASC`);
+      lines.push(`ORDER BY ${[`${dimExprs[0]} ${q.sort.dir === "desc" ? "DESC" : "ASC"}`, ...rest].join(", ")}`);
     } else {
       const m = measures[q.sort.by];
       if (!m) throw new Error("排序指到不存在的度量");
       lines.push(`ORDER BY ${ident(m.name)} ${q.sort.dir === "desc" ? "DESC" : "ASC"}`);
     }
-  } else if (dim) {
-    lines.push(`ORDER BY ${dimExpr} ASC`);
+  } else if (dims.length > 0) {
+    lines.push(`ORDER BY ${dimExprs.map((e) => `${e} ASC`).join(", ")}`);
   }
 
   const limit = Math.max(1, Math.min(q.limit ?? DEFAULT_LIMIT, MAX_LIMIT));

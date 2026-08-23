@@ -155,11 +155,18 @@ describe("compileExplorerQuery", () => {
   it("rejects: two dimensions, wrong field kind, unknown field, empty query", () => {
     expect(() =>
       compileExplorerQuery(MODEL, {
-        dimensions: [{ fieldId: 1 }, { fieldId: 2 }],
+        dimensions: [{ fieldId: 1 }, { fieldId: 2 }, { fieldId: 1 }],
         measures: [],
         filters: [],
       }),
-    ).toThrow("一個維度");
+    ).toThrow("兩個維度");
+    expect(() =>
+      compileExplorerQuery(MODEL, {
+        dimensions: [{ fieldId: 1 }, { fieldId: 1 }],
+        measures: [],
+        filters: [],
+      }),
+    ).toThrow("同一個欄位");
     expect(() =>
       compileExplorerQuery(MODEL, { dimensions: [{ fieldId: 3 }], measures: [], filters: [] }),
     ).toThrow("不是維度");
@@ -169,6 +176,35 @@ describe("compileExplorerQuery", () => {
     expect(() =>
       compileExplorerQuery(MODEL, { dimensions: [], measures: [], filters: [] }),
     ).toThrow("至少");
+  });
+
+  it("compiles two dimensions: both selected, grouped and ordered", () => {
+    const { sql, columns } = compileExplorerQuery(MODEL, {
+      dimensions: [{ fieldId: 1, dateBucket: "month" }, { fieldId: 2 }],
+      measures: [{ fieldId: 3 }],
+      filters: [],
+    });
+    expect(sql).toContain("DATE_FORMAT(`o`.`created_at`, '%Y-%m') AS `月份`");
+    expect(sql).toContain("`up`.`nickname` AS `暱稱`");
+    expect(sql).toContain(
+      "GROUP BY DATE_FORMAT(`o`.`created_at`, '%Y-%m'), `up`.`nickname`",
+    );
+    expect(sql).toContain(
+      "ORDER BY DATE_FORMAT(`o`.`created_at`, '%Y-%m') ASC, `up`.`nickname` ASC",
+    );
+    expect(columns.map((c) => c.key)).toEqual(["月份", "暱稱", "營收"]);
+  });
+
+  it("two dimensions with dimension sort keep the series order stable", () => {
+    const { sql } = compileExplorerQuery(MODEL, {
+      dimensions: [{ fieldId: 1, dateBucket: "month" }, { fieldId: 2 }],
+      measures: [{ fieldId: 3 }],
+      filters: [],
+      sort: { by: "dimension", dir: "desc" },
+    });
+    expect(sql).toContain(
+      "ORDER BY DATE_FORMAT(`o`.`created_at`, '%Y-%m') DESC, `up`.`nickname` ASC",
+    );
   });
 
   it("clamps the limit", () => {
