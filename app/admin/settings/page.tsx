@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
+import { AppShell } from "../../components/Sidebar";
 
 type Source = "db" | "env" | "default";
 
@@ -69,21 +69,11 @@ export default function AdminSettingsPage() {
   }
 
   return (
-    <main className="knowledge">
-      <div className="kn-top">
-        <h1 className="cyber-glitch" data-text="系統設定">
-          系統設定
-        </h1>
-        <span className="header-actions">
-          <Link href="/" className="link-btn">
-            ← 回儀表板
-          </Link>
-        </span>
-      </div>
-      <p className="kn-sub">
-        調整營運參數，變更即時生效、免重啟。留空並「還原」表示改用 .env 或內建預設值。
-        （祕密設定與連線的搬遷在後續切片處理。）
-      </p>
+    <AppShell
+      active="settings"
+      title="系統設定"
+      subtitle="變更即時生效、免重啟——留空並「還原」表示改用 .env 或內建預設值"
+    >
 
       {error && <div className="unreviewed-banner">{error}</div>}
       {!settings && !error && <div className="kn-empty">載入中…</div>}
@@ -108,11 +98,11 @@ export default function AdminSettingsPage() {
                 />
                 <button
                   type="button"
-                  className="logout"
+                  className="btn btn-primary"
                   disabled={savingKey === s.def.key}
                   onClick={() => patch(s.def.key, drafts[s.def.key] ?? "")}
                 >
-                  儲存
+                  {savingKey === s.def.key ? "儲存中…" : "儲存"}
                 </button>
                 <button
                   type="button"
@@ -127,6 +117,6 @@ export default function AdminSettingsPage() {
           ))}
         </div>
       )}
-    </main>
+    </AppShell>
   );
 }

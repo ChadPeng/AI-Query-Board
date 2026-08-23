@@ -51,47 +51,59 @@ export default function LoginPage() {
 
   return (
     <main className="auth-page">
-      <form className="auth-card cyber-chamfer" onSubmit={submit}>
-        <h1 className="cyber-glitch" data-text="AI 數據儀表板">
-          AI 數據儀表板
-        </h1>
-        <p className="auth-sub">{mode === "login" ? "登入以繼續" : "建立新帳號"}</p>
+      <form className="auth-card" onSubmit={submit}>
+        <div className="auth-brand">
+          <span
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 34,
+              height: 34,
+              borderRadius: 8,
+              background: "var(--accent)",
+              flexShrink: 0,
+            }}
+          >
+            <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
+              <path d="M2 13.5V9M6 13.5V5.5M10 13.5V8M14 13.5V2.5" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </span>
+          <h1>QueryBoard</h1>
+        </div>
+        <p className="auth-sub">
+          {mode === "login" ? "AI 數據分析平台——登入以繼續" : "建立新帳號"}
+        </p>
 
         {mode === "register" && (
-          <div className="cyber-input-wrap">
-            <span className="cyber-input-prefix">&gt;</span>
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="名稱（選填）"
-            />
-          </div>
+          <label className="auth-field">
+            名稱（選填）
+            <input value={name} onChange={(e) => setName(e.target.value)} />
+          </label>
         )}
-        <div className="cyber-input-wrap">
-          <span className="cyber-input-prefix">&gt;</span>
+        <label className="auth-field">
+          Email
           <input
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="email"
             required
           />
-        </div>
-        <div className="cyber-input-wrap">
-          <span className="cyber-input-prefix">&gt;</span>
+        </label>
+        <label className="auth-field">
+          密碼{mode === "register" && "（至少 8 字元）"}
           <input
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            placeholder="密碼（至少 8 字元）"
             required
           />
-        </div>
+        </label>
 
         {error && <div className="auth-error">{error}</div>}
 
         <button type="submit" disabled={busy}>
-          {busy ? "…" : mode === "login" ? "登入" : "註冊並登入"}
+          {busy ? (mode === "login" ? "登入中…" : "註冊中…") : mode === "login" ? "登入" : "註冊並登入"}
         </button>
 
         <button

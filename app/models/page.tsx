@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import { AppShell } from "../components/Sidebar";
 import type {
   DatasetFieldDef,
   DatasetMeta,
@@ -32,6 +32,14 @@ interface Draft {
 
 const EMPTY_DRAFT: Draft = { name: "", description: "", published: false, tables: [], fields: [] };
 const AGGS: MeasureAggregation[] = ["sum", "avg", "count", "count_distinct", "min", "max"];
+const AGG_LABEL: Record<MeasureAggregation, string> = {
+  sum: "加總 SUM",
+  avg: "平均 AVG",
+  count: "筆數 COUNT",
+  count_distinct: "去重筆數 COUNT DISTINCT",
+  min: "最小值 MIN",
+  max: "最大值 MAX",
+};
 
 const qualified = (t: DatasetTableNode) => `${t.schema}.${t.table}`;
 
@@ -319,27 +327,11 @@ export default function ModelsPage() {
   }
 
   return (
-    <main className="knowledge">
-      <div className="kn-top">
-        <h1 className="cyber-glitch" data-text="資料模型">
-          資料模型
-        </h1>
-        <span className="header-actions">
-          <Link href="/explore" className="link-btn">
-            探索
-          </Link>
-          <Link href="/knowledge" className="link-btn">
-            語意層
-          </Link>
-          <Link href="/" className="link-btn">
-            ← 回儀表板
-          </Link>
-        </span>
-      </div>
-      <p className="kn-sub">
-        把「表怎麼 JOIN、什麼是維度/度量」固化成具名模型：探索頁零 AI 出圖、AI 查詢命中時直接沿用
-        JOIN 樹。星型限制——一張基底表，JOIN 只能沿 多對一/一對一 往維度方向掛。
-      </p>
+    <AppShell
+      active="models"
+      title="資料模型"
+      subtitle="把「表怎麼 JOIN、什麼是維度/度量」固化成具名模型——星型限制：一張基底表，JOIN 只沿多對一/一對一往維度方向掛"
+    >
 
       {error && <div className="unreviewed-banner">{error}</div>}
       {msg && <div className="badge">{msg}</div>}
@@ -516,7 +508,7 @@ export default function ModelsPage() {
                     <select className="kn-select" value={meaAgg} onChange={(e) => setMeaAgg(e.target.value as MeasureAggregation)}>
                       {AGGS.map((a) => (
                         <option key={a} value={a}>
-                          {a}
+                          {AGG_LABEL[a]}
                         </option>
                       ))}
                     </select>
@@ -559,6 +551,6 @@ export default function ModelsPage() {
           </div>
         </>
       )}
-    </main>
+    </AppShell>
   );
 }

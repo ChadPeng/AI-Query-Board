@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { ROLES, type Role } from "@/lib/auth/permissions";
+import { AppShell } from "../../components/Sidebar";
 
 interface UserSummary {
   id: number;
@@ -69,21 +69,11 @@ export default function AdminUsersPage() {
   }
 
   return (
-    <main className="knowledge">
-      <div className="kn-top">
-        <h1 className="cyber-glitch" data-text="使用者">
-          使用者
-        </h1>
-        <span className="header-actions">
-          <Link href="/" className="link-btn">
-            ← 回儀表板
-          </Link>
-        </span>
-      </div>
-      <p className="kn-sub">
-        指派角色決定誰能做什麼：Viewer 只能跑報表、Editor（RD）可建立與編輯報表並寫 SQL、
-        Super Admin 另可管理使用者與系統設定。上位角色涵蓋下位的所有權限。
-      </p>
+    <AppShell
+      active="users"
+      title="使用者"
+      subtitle="指派角色：Viewer 跑報表、Editor 寫 SQL 與報表、Super Admin 管理使用者與設定"
+    >
 
       {error && <div className="unreviewed-banner">{error}</div>}
 
@@ -120,7 +110,7 @@ export default function AdminUsersPage() {
                           </option>
                         ))}
                       </select>
-                      {isSelf && " （你自己）"}
+                      {isSelf && <span className="scope-chip" style={{ marginLeft: 8 }}>你自己</span>}
                     </td>
                   </tr>
                 );
@@ -129,6 +119,6 @@ export default function AdminUsersPage() {
           </table>
         </div>
       )}
-    </main>
+    </AppShell>
   );
 }

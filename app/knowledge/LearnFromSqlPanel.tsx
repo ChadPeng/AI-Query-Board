@@ -46,16 +46,14 @@ export function LearnFromSqlPanel({ onLearned }: { onLearned: () => void }) {
 
   return (
     <details
-      className="learn-panel cyber-chamfer"
+      className="learn-panel"
       open={open}
       onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}
     >
       <summary>
-        <span className="cyber-terminal-dots" aria-hidden="true">
-          <span className="cyber-dot red" />
-          <span className="cyber-dot yellow" />
-          <span className="cyber-dot green" />
-        </span>
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M8 1.5L9.6 6.4L14.5 8L9.6 9.6L8 14.5L6.4 9.6L1.5 8L6.4 6.4L8 1.5Z" fill="var(--accent)" />
+        </svg>
         從 SQL 學習規則
       </summary>
       <p className="kn-note">
@@ -71,10 +69,10 @@ export function LearnFromSqlPanel({ onLearned }: { onLearned: () => void }) {
       {err && <div className="auth-error">{err}</div>}
       {result && (
         <div className="learn-result">
-          ✓ 新增關係草稿 {result.relationshipsAdded} 條、規則草稿 {result.rulesAdded} 條
+          已新增關係草稿 {result.relationshipsAdded} 條、規則草稿 {result.rulesAdded} 條
           {result.relationshipsSkipped + result.rulesSkipped > 0 &&
             `（略過 ${result.relationshipsSkipped + result.rulesSkipped} 條：重複或指向未知表）`}
-          。到下方分頁校對黃底項目。
+          。到下方分頁校對標示「未確認」的項目。
         </div>
       )}
       <div style={{ marginTop: 10 }}>

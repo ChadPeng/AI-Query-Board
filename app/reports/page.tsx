@@ -1,13 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { can, isRole } from "@/lib/auth/permissions";
 import type { ParamType, ReportParam } from "@/lib/reports/params";
 import { REPORT_CHART_TYPES, OUTPUT_MODES, validateChartSpec, type OutputMode } from "@/lib/reports/chart";
 import type { ChartSpec, ChartType } from "@/lib/llm/types";
 import { Chart, type ChartHandle } from "../components/Chart";
+import { AppShell } from "../components/Sidebar";
 
 interface ReportSummary {
   id: number;
@@ -48,6 +48,12 @@ const TYPE_LABEL: Record<ParamType, string> = {
   enum: "下拉選單",
 };
 const MODE_LABEL: Record<OutputMode, string> = { table: "只有表格", chart: "只有圖", both: "表格＋圖" };
+const CHART_LABEL: Partial<Record<ChartType, string>> = {
+  bar: "長條圖",
+  line: "折線圖",
+  area: "面積圖",
+  pie: "圓餅圖",
+};
 
 function cell(v: unknown): string {
   if (v == null) return "";
@@ -85,6 +91,7 @@ export default function ReportsPage() {
   const canAuthor = can(role, "report:create");
 
   const [reports, setReports] = useState<ReportSummary[] | null>(null);
+  const [filter, setFilter] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Editing>(null);
   const [saving, setSaving] = useState(false);
@@ -150,7 +157,7 @@ export default function ReportsPage() {
     }
   }, []);
 
-  async function openRun(r: ReportSummary) {
+  async function openRun(r: { id: number }) {
     setEditing(null);
     setResult(null);
     setError(null);
@@ -162,7 +169,7 @@ export default function ReportsPage() {
     if (full.params.length === 0) await doRun(full.id, initial);
   }
 
-  async function startEdit(r: ReportSummary) {
+  async function startEdit(r: { id: number }) {
     setRunTarget(null);
     setResult(null);
     setError(null);
@@ -272,7 +279,7 @@ export default function ReportsPage() {
     }
   }
 
-  async function remove(r: ReportSummary) {
+  async function remove(r: { id: number; title: string }) {
     if (!confirm(`確定刪除報表「${r.title}」？此操作無法復原。`)) return;
     setError(null);
     const res = await fetch(`/api/reports/${r.id}`, { method: "DELETE" });
@@ -357,75 +364,75 @@ export default function ReportsPage() {
     triggerDownload(url, `${runTarget?.title || "chart"}.png`);
   }
 
+  const filtered = (reports ?? []).filter((r) =>
+    r.title.toLowerCase().includes(filter.trim().toLowerCase()),
+  );
+  const selectedId = editing?.id ?? runTarget?.id ?? null;
+
   return (
-    <main className="knowledge">
-      <div className="kn-top">
-        <h1 className="cyber-glitch" data-text="報表">
-          報表
-        </h1>
-        <span className="header-actions">
-          {canAuthor && (
-            <button type="button" className="link-btn" onClick={startCreate}>
-              ＋ 新增報表
-            </button>
+    <AppShell
+      active="reports"
+      title="報表"
+      subtitle="具名、可重用的查詢報表——挑一張、填參數、執行、匯出"
+      bleed
+      actions={
+        canAuthor ? (
+          <button type="button" className="btn btn-primary" onClick={startCreate}>
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+              <path d="M8 3V13M3 8H13" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+            </svg>
+            新增報表
+          </button>
+        ) : undefined
+      }
+    >
+      <div className="master-detail">
+        {/* 左：報表清單 */}
+        <aside className="list-pane">
+          <div className="list-search">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
+              <circle cx="7" cy="7" r="5" stroke="var(--text-dim)" strokeWidth="1.5" />
+              <path d="M11 11L14 14" stroke="var(--text-dim)" strokeWidth="1.5" strokeLinecap="round" />
+            </svg>
+            <input
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="搜尋報表…"
+            />
+          </div>
+          <div className="list-body">
+            {!reports && !error && <div className="kn-empty">載入中…</div>}
+            {reports && reports.length === 0 && (
+              <div className="kn-empty">
+                還沒有報表。{canAuthor ? "點右上角「新增報表」建立第一張。" : "請 Editor 建立報表。"}
+              </div>
+            )}
+            {reports && reports.length > 0 && filtered.length === 0 && (
+              <div className="kn-empty">沒有符合「{filter}」的報表</div>
+            )}
+            {filtered.map((r) => (
+              <button
+                key={r.id}
+                type="button"
+                className={`report-row ${selectedId === r.id ? "active" : ""}`}
+                onClick={() => openRun(r)}
+              >
+                <span className="row-line">
+                  <span className="row-title">{r.title}</span>
+                  <span className="row-date">{r.updatedAt?.slice(0, 10)}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </aside>
+
+        {/* 右：執行／編輯面板 */}
+        <div className="detail-pane">
+          {error && <div className="unreviewed-banner" style={{ marginBottom: 0 }}>{error}</div>}
+
+          {!editing && !runTarget && (
+            <div className="empty">從左側挑一張報表，填參數後執行——結果會顯示在這裡</div>
           )}
-          <Link href="/" className="link-btn">
-            ← 回儀表板
-          </Link>
-        </span>
-      </div>
-      <p className="kn-sub">
-        具名、可重用的查詢報表。營運端挑一張、填參數、執行、看表格或圖；Editor（RD）可寫 SQL、宣告參數、設計圖表。
-      </p>
-
-      {error && <div className="unreviewed-banner">{error}</div>}
-
-      {!reports && !error && <div className="kn-empty">載入中…</div>}
-
-      {reports && reports.length === 0 && !editing && (
-        <div className="kn-empty">
-          還沒有報表。{canAuthor ? "點右上角「新增報表」建立第一張。" : "請 RD 建立報表。"}
-        </div>
-      )}
-
-      {reports && reports.length > 0 && (
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>報表名稱</th>
-                <th>最後更新</th>
-                <th>動作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {reports.map((r) => (
-                <tr key={r.id}>
-                  <td>{r.title}</td>
-                  <td>{r.updatedAt?.slice(0, 19).replace("T", " ")}</td>
-                  <td>
-                    <button type="button" className="link-btn" onClick={() => openRun(r)}>
-                      執行
-                    </button>
-                    {canAuthor && (
-                      <>
-                        {" · "}
-                        <button type="button" className="link-btn" onClick={() => startEdit(r)}>
-                          編輯
-                        </button>
-                        {" · "}
-                        <button type="button" className="link-btn" onClick={() => remove(r)}>
-                          刪除
-                        </button>
-                      </>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
 
       {/* Editor form (Editor+ only) */}
       {editing && (
@@ -530,7 +537,7 @@ export default function ReportsPage() {
                       >
                         {REPORT_CHART_TYPES.map((t) => (
                           <option key={t} value={t}>
-                            {t}
+                            {CHART_LABEL[t] ?? t}
                           </option>
                         ))}
                       </select>
@@ -567,12 +574,12 @@ export default function ReportsPage() {
             )}
           </div>
 
-          <div className="header-actions">
-            <button type="button" className="logout" onClick={save} disabled={saving}>
-              {saving ? "儲存中…" : "儲存"}
-            </button>
-            <button type="button" className="logout" onClick={() => setEditing(null)}>
+          <div className="header-actions" style={{ justifyContent: "flex-end" }}>
+            <button type="button" className="btn" onClick={() => setEditing(null)}>
               取消
+            </button>
+            <button type="button" className="btn btn-primary" onClick={save} disabled={saving}>
+              {saving ? "儲存中…" : "儲存"}
             </button>
           </div>
         </section>
@@ -580,8 +587,30 @@ export default function ReportsPage() {
 
       {/* Run view */}
       {runTarget && !editing && (
-        <section className="report-result">
-          <h2>{runTarget.title}</h2>
+        <section className="report-result" style={{ border: "none", background: "transparent", padding: 0 }}>
+          <div className="detail-head" style={{ marginBottom: 12 }}>
+            <div className="detail-title">
+              <b>{runTarget.title}</b>
+              <span>輸出：{MODE_LABEL[runTarget.outputMode]}・參數 {runTarget.params.length} 個</span>
+            </div>
+            {canAuthor && (
+              <div className="header-actions">
+                <button type="button" className="btn" onClick={() => startEdit({ id: runTarget.id })}>
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                    <path d="M11.5 2.5L13.5 4.5L5.5 12.5L2.5 13.5L3.5 10.5L11.5 2.5Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+                  </svg>
+                  編輯
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-danger"
+                  onClick={() => remove({ id: runTarget.id, title: runTarget.title })}
+                >
+                  刪除
+                </button>
+              </div>
+            )}
+          </div>
 
           {runTarget.params.length > 0 && (
             <div className="report-run-form">
@@ -624,7 +653,10 @@ export default function ReportsPage() {
                   )}
                 </label>
               ))}
-              <button type="button" className="logout" onClick={() => doRun(runTarget.id, runValues)} disabled={running}>
+              <button type="button" className="btn btn-primary" onClick={() => doRun(runTarget.id, runValues)} disabled={running}>
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                  <path d="M4 2.5L13 8L4 13.5V2.5Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" fill="currentColor" />
+                </svg>
                 {running ? "執行中…" : "執行"}
               </button>
             </div>
@@ -635,12 +667,21 @@ export default function ReportsPage() {
           {!running && result && result.rows.length > 0 && (
             <>
               <div className="report-actions">
-                <button type="button" className="link-btn" onClick={downloadCsv} disabled={exporting}>
-                  {exporting ? "匯出中…" : "⭳ 匯出 CSV"}
+                <button type="button" className="btn" onClick={downloadCsv} disabled={exporting}>
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                    <path d="M8 2V10M8 10L5 7M8 10L11 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M2.5 12.5H13.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                  </svg>
+                  {exporting ? "匯出中…" : "匯出 CSV"}
                 </button>
                 {showChart(runTarget.outputMode, runTarget.chartSpec) && (
-                  <button type="button" className="link-btn" onClick={downloadPng}>
-                    ⭳ 下載 PNG
+                  <button type="button" className="btn" onClick={downloadPng}>
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                      <rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.4" />
+                      <circle cx="5.5" cy="5.5" r="1.2" stroke="currentColor" strokeWidth="1.2" />
+                      <path d="M14 10L10.5 7L4 13.5" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+                    </svg>
+                    下載 PNG
                   </button>
                 )}
               </div>
@@ -673,6 +714,8 @@ export default function ReportsPage() {
           )}
         </section>
       )}
-    </main>
+        </div>
+      </div>
+    </AppShell>
   );
 }

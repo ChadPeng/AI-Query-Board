@@ -1,11 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Link from "next/link";
-import { useSession } from "next-auth/react";
 import type { CatalogEntry } from "@/lib/state/catalog";
 import type { SemanticRule } from "@/lib/state/semanticRules";
 import type { Relationship } from "@/lib/state/relationships";
+import { AppShell } from "../components/Sidebar";
 import { CatalogTab } from "./CatalogTab";
 import { RulesTab } from "./RulesTab";
 import { RelationshipsTab } from "./RelationshipsTab";
@@ -22,8 +21,7 @@ interface KnowledgeData {
 }
 
 export default function KnowledgePage() {
-  const { data: session } = useSession();
-  const [tab, setTab] = useState<Tab>("rules");
+  const [tab, setTab] = useState<Tab>("tables");
   const [data, setData] = useState<KnowledgeData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -55,35 +53,11 @@ export default function KnowledgePage() {
     : { tables: 0, relationships: 0, rules: 0 };
 
   return (
-    <main className="knowledge">
-      <div className="kn-top">
-        <h1 className="cyber-glitch" data-text="語意層">
-          語意層
-        </h1>
-        <span className="header-actions">
-          <Link href="/reports" className="link-btn">
-            報表
-          </Link>
-          {session?.user?.role === "super_admin" && (
-            <>
-              <Link href="/admin/users" className="link-btn">
-                使用者
-              </Link>
-              <Link href="/admin/settings" className="link-btn">
-                設定
-              </Link>
-            </>
-          )}
-          <Link href="/" className="link-btn">
-            ← 回儀表板
-          </Link>
-        </span>
-      </div>
-      <p className="kn-sub">
-        教 AI 如何正確查詢你的資料庫——代碼含義、指標定義、表關係。這些知識全域共用。
-        黃底的是 AI 建議、尚未經人工確認的草稿。
-      </p>
-
+    <AppShell
+      active="knowledge"
+      title="語意層"
+      subtitle="教 AI 正確查詢你的資料庫——代碼含義、指標定義、表關係，全域共用"
+    >
       {error && <div className="unreviewed-banner">{error}</div>}
 
       <StatsPanel />
@@ -95,21 +69,30 @@ export default function KnowledgePage() {
           className={`tab ${tab === "tables" ? "active" : ""}`}
           onClick={() => setTab("tables")}
         >
-          資料表<span className="count">{unreviewed.tables ? `${unreviewed.tables} 待確認` : ""}</span>
+          資料表
+          {unreviewed.tables > 0 && <span className="count">{unreviewed.tables} 待確認</span>}
         </button>
         <button
           className={`tab ${tab === "relationships" ? "active" : ""}`}
           onClick={() => setTab("relationships")}
         >
-          關係<span className="count">{unreviewed.relationships ? `${unreviewed.relationships} 待確認` : ""}</span>
+          關係
+          {unreviewed.relationships > 0 && (
+            <span className="count">{unreviewed.relationships} 待確認</span>
+          )}
         </button>
         <button
           className={`tab ${tab === "rules" ? "active" : ""}`}
           onClick={() => setTab("rules")}
         >
-          規則<span className="count">{unreviewed.rules ? `${unreviewed.rules} 待確認` : ""}</span>
+          規則
+          {unreviewed.rules > 0 && <span className="count">{unreviewed.rules} 待確認</span>}
         </button>
       </div>
+
+      <p className="kn-note" style={{ margin: "0 0 14px" }}>
+        標示「未確認」的是 AI 產生、尚未經人工校對的草稿——仍會提供給 AI 使用，但會註明未經確認。
+      </p>
 
       {!data && !error && <div className="kn-empty">載入中…</div>}
 
@@ -126,6 +109,6 @@ export default function KnowledgePage() {
       {data && tab === "rules" && (
         <RulesTab rules={data.rules} tables={data.tables} onChanged={load} />
       )}
-    </main>
+    </AppShell>
   );
 }

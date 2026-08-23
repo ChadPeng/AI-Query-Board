@@ -17,8 +17,8 @@ function num(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-/** Cyberpunk neon series palette — green/magenta/cyan/amber/red, in that order. */
-const NEON_PALETTE = ["#00ff88", "#ff00ff", "#00d4ff", "#ffaa00", "#ff3366"];
+/** 系列色（深色底、色盲安全驗證過的固定順序）：藍/橘/綠/黃/桃紅。 */
+const SERIES_PALETTE = ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181"];
 
 /** Read a themed colour from the CSS variables so charts match the design tokens.
  *  Font is read from the resolved body font-family (canvas text can't consume
@@ -27,10 +27,10 @@ function themeColors() {
   const s = getComputedStyle(document.documentElement);
   const v = (name: string, fallback: string) => s.getPropertyValue(name).trim() || fallback;
   return {
-    text: v("--text", "#e0e0e0"),
-    muted: v("--text-muted", "#8b93a3"),
-    border: v("--border", "#2a2a3a"),
-    font: getComputedStyle(document.body).fontFamily || "monospace",
+    text: v("--text", "#e6e8ec"),
+    muted: v("--text-muted", "#9aa1ac"),
+    border: v("--border", "#24262c"),
+    font: getComputedStyle(document.body).fontFamily || "sans-serif",
   };
 }
 
@@ -40,7 +40,7 @@ function buildOption(spec: ChartSpec, rows: Row[]): echarts.EChartsOption {
   const categories = rows.map((r) => String(r[spec.x] ?? ""));
   const common = {
     backgroundColor: "transparent",
-    color: NEON_PALETTE,
+    color: SERIES_PALETTE,
     title: {
       text: spec.title,
       left: "center",
@@ -146,7 +146,7 @@ export const Chart = forwardRef<
     () => ({
       toPng: () =>
         inst.current
-          ? inst.current.getDataURL({ type: "png", pixelRatio: 2, backgroundColor: "#0d0d17" })
+          ? inst.current.getDataURL({ type: "png", pixelRatio: 2, backgroundColor: "#0f1013" })
           : null,
     }),
     [],

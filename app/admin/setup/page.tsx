@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { AppShell } from "../../components/Sidebar";
 
 // First-run setup wizard (docs/adr/0005). A guided, focused form over the same
 // settings API for the connection + LLM provider that a fresh install must fill
@@ -17,6 +18,13 @@ const ANALYTICS_FIELDS = [
 ];
 
 const PROVIDERS = ["claude", "gemini", "groq", "ollama", "openai-compat"];
+const PROVIDER_LABEL: Record<string, string> = {
+  claude: "Claude（Anthropic）",
+  gemini: "Gemini（Google）",
+  groq: "Groq",
+  ollama: "Ollama",
+  "openai-compat": "OpenAI 相容端點",
+};
 // which key/model fields matter per provider
 const PROVIDER_FIELDS: Record<string, { key: string; label: string; secret?: boolean }[]> = {
   claude: [
@@ -132,28 +140,20 @@ export default function SetupWizardPage() {
   );
 
   return (
-    <main className="knowledge">
-      <div className="kn-top">
-        <h1 className="cyber-glitch" data-text="初始設定">
-          初始設定
-        </h1>
-        <span className="header-actions">
-          <Link href="/admin/settings" className="link-btn">
-            進階設定
-          </Link>
-          <Link href="/" className="link-btn">
-            ← 回儀表板
-          </Link>
-        </span>
-      </div>
-      <p className="kn-sub">
-        填入分析資料庫連線與 LLM 供應商金鑰，系統即可使用。祕密欄位加密存放、不回顯；變更即時生效，免重啟。
-      </p>
-
+    <AppShell
+      active="settings"
+      title="初始設定"
+      subtitle="填入分析資料庫連線與 LLM 供應商金鑰——祕密欄位加密存放、不回顯，變更即時生效"
+      actions={
+        <Link href="/admin/settings" className="btn">
+          進階設定
+        </Link>
+      }
+    >
       {status && (
         <div className={status.analyticsConfigured && status.providerConfigured ? "badge" : "unreviewed-banner"}>
-          分析庫：{status.analyticsConfigured ? "已設定 ✓" : "未設定"}　·
-          LLM：{status.providerConfigured ? "已設定 ✓" : "未設定"}
+          分析庫：{status.analyticsConfigured ? "已設定" : "未設定"}・
+          LLM：{status.providerConfigured ? "已設定" : "未設定"}
         </div>
       )}
       {error && <div className="unreviewed-banner">{error}</div>}
@@ -171,7 +171,7 @@ export default function SetupWizardPage() {
           <select className="kn-select" value={provider} onChange={(e) => setProvider(e.target.value)}>
             {PROVIDERS.map((p) => (
               <option key={p} value={p}>
-                {p}
+                {PROVIDER_LABEL[p] ?? p}
               </option>
             ))}
           </select>
@@ -179,11 +179,11 @@ export default function SetupWizardPage() {
         {(PROVIDER_FIELDS[provider] ?? []).map(field)}
       </section>
 
-      <div className="header-actions">
-        <button type="button" className="logout" onClick={saveAll} disabled={busy}>
+      <div className="header-actions" style={{ marginTop: 16 }}>
+        <button type="button" className="btn btn-primary" onClick={saveAll} disabled={busy}>
           {busy ? "儲存中…" : "儲存全部"}
         </button>
       </div>
-    </main>
+    </AppShell>
   );
 }

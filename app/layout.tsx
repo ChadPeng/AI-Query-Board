@@ -1,21 +1,20 @@
 import type { Metadata } from "next";
-import { Orbitron, Share_Tech_Mono, JetBrains_Mono } from "next/font/google";
+import { IBM_Plex_Sans, Noto_Sans_TC, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
 
-// Cyberpunk/glitch design system font stack. CJK glyphs (this app's UI copy is
-// zh-Hant) fall back per-character to the system CJK font declared in
-// globals.css — only Latin letters/numbers/labels render in these faces.
-const orbitron = Orbitron({
+// 冷靜專業風（深色資料介面）字體組：Latin 用 IBM Plex Sans、CJK 落到
+// Noto Sans TC，SQL 與數字用 JetBrains Mono（表格數字配 tabular-nums）。
+const plexSans = IBM_Plex_Sans({
   subsets: ["latin"],
-  weight: ["700", "800", "900"],
-  variable: "--font-heading",
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-sans",
   display: "swap",
 });
-const shareTechMono = Share_Tech_Mono({
+const notoSansTC = Noto_Sans_TC({
   subsets: ["latin"],
-  weight: "400",
-  variable: "--font-accent",
+  weight: ["400", "500", "700"],
+  variable: "--font-tc",
   display: "swap",
 });
 const jetBrainsMono = JetBrains_Mono({
@@ -26,7 +25,7 @@ const jetBrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AI 數據儀表板",
+  title: "QueryBoard — AI 數據分析",
   description: "用自然語言問數據問題，AI 產生圖表",
 };
 
@@ -38,7 +37,7 @@ export default function RootLayout({
   return (
     <html
       lang="zh-Hant"
-      className={`${orbitron.variable} ${shareTechMono.variable} ${jetBrainsMono.variable}`}
+      className={`${plexSans.variable} ${notoSansTC.variable} ${jetBrainsMono.variable}`}
     >
       <body>
         <Providers>{children}</Providers>
