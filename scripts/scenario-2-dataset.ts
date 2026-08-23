@@ -169,8 +169,8 @@ async function main() {
       { alias: "u", schema: "mepay", table: "users", parentAlias: "up", parentColumn: "user_id", childColumn: "id", cardinality: "many_to_one", relationshipId: null },
     ],
     fields: [
-      { kind: "dimension", name: "是否創作者", description: null, tableAlias: "u", columnName: "is_creator", dataType: "int", aggregation: null, conditionSql: null, sortOrder: 0 },
-      { kind: "measure", name: "訂單數", description: null, tableAlias: "o", columnName: null, dataType: null, aggregation: "count", conditionSql: null, sortOrder: 1 },
+      { kind: "dimension", name: "是否創作者", description: null, tableAlias: "u", columnName: "is_creator", dataType: "int", aggregation: null, conditionSql: null, valueLabels: null, sortOrder: 0 },
+      { kind: "measure", name: "訂單數", description: null, tableAlias: "o", columnName: null, dataType: null, aggregation: "count", conditionSql: null, valueLabels: null, sortOrder: 1 },
     ],
   };
   const mhProbe = await probeDatasetInput(multiHop);

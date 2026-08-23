@@ -37,6 +37,24 @@ function rowToNode(r: RowDataPacket): DatasetTableNode {
   };
 }
 
+/** value_labels JSON 欄位：驅動程式可能回傳已解析物件或字串，一律正規化。 */
+function parseValueLabels(v: unknown): Record<string, string> | null {
+  let obj: unknown = v;
+  if (typeof v === "string") {
+    try {
+      obj = JSON.parse(v);
+    } catch {
+      return null;
+    }
+  }
+  if (obj == null || typeof obj !== "object" || Array.isArray(obj)) return null;
+  const out: Record<string, string> = {};
+  for (const [k, val] of Object.entries(obj as Record<string, unknown>)) {
+    if (typeof val === "string") out[k] = val;
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 function rowToField(r: RowDataPacket): DatasetFieldDef {
   return {
     id: Number(r.id),
@@ -48,6 +66,7 @@ function rowToField(r: RowDataPacket): DatasetFieldDef {
     dataType: r.data_type != null ? String(r.data_type) : null,
     aggregation: r.aggregation != null ? (String(r.aggregation) as DatasetFieldDef["aggregation"]) : null,
     conditionSql: r.condition_sql != null ? String(r.condition_sql) : null,
+    valueLabels: parseValueLabels(r.value_labels),
     sortOrder: Number(r.sort_order),
   };
 }
@@ -80,7 +99,7 @@ export async function getDatasetModel(id: number): Promise<DatasetModel | null> 
   )) as [RowDataPacket[], unknown];
   const [fieldRows] = (await pool().query(
     `SELECT id, kind, name, description, table_alias, column_name, data_type,
-            aggregation, condition_sql, sort_order
+            aggregation, condition_sql, value_labels, sort_order
        FROM dataset_field WHERE dataset_id = ? ORDER BY kind, sort_order, id`,
     [id],
   )) as [RowDataPacket[], unknown];
@@ -108,11 +127,12 @@ async function insertChildren(conn: PoolConnection, datasetId: number, input: Da
     await conn.query(
       `INSERT INTO dataset_field
          (dataset_id, kind, name, description, table_alias, column_name, data_type,
-          aggregation, condition_sql, sort_order)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          aggregation, condition_sql, value_labels, sort_order)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         datasetId, f.kind, f.name, f.description, f.tableAlias, f.columnName,
-        f.dataType, f.aggregation, f.conditionSql, f.sortOrder ?? i,
+        f.dataType, f.aggregation, f.conditionSql,
+        f.valueLabels ? JSON.stringify(f.valueLabels) : null, f.sortOrder ?? i,
       ],
     );
   }

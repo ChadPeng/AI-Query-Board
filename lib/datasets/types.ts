@@ -43,6 +43,8 @@ export interface DatasetFieldDef {
   dataType: string | null;
   /** measures only */
   aggregation: MeasureAggregation | null;
+  /** 維度限定：值→顯示名的對映（如 {"4":"已完成"}），顯示層套用；null＝原樣 */
+  valueLabels: Record<string, string> | null;
   /** measures only: raw boolean SQL fragment (business口徑), editor-trusted */
   conditionSql: string | null;
   sortOrder: number;

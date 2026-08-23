@@ -260,6 +260,9 @@ const COLUMN_ADDITIONS: { table: string; column: string; clause: string }[] = [
     column: "output_mode",
     clause: "ADD COLUMN output_mode ENUM('table','chart','both') NOT NULL DEFAULT 'both'",
   },
+  // BI 第四波 — 維度值標籤：代碼→顯示名的結構化對映（如 {"4":"已完成"}）。
+  // 探索頁圖表/表格顯示時套用；NULL = 原樣顯示。
+  { table: "dataset_field", column: "value_labels", clause: "ADD COLUMN value_labels JSON NULL" },
 ];
 
 async function columnExists(pool: Pool, table: string, column: string): Promise<boolean> {

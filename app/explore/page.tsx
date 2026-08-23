@@ -58,6 +58,16 @@ interface FilterRow {
   v2: string;
 }
 
+const DAY_MS = 86_400_000;
+const isoDay = (t: number) => new Date(t).toISOString().slice(0, 10);
+
+const TIME_PRESETS = [
+  { key: "d30", label: "近 30 天", days: 30 },
+  { key: "d90", label: "近 90 天", days: 90 },
+  { key: "d180", label: "近半年", days: 180 },
+  { key: "y1", label: "近一年", days: 365 },
+] as const;
+
 export default function ExplorePage() {
   const [datasets, setDatasets] = useState<DatasetMeta[]>([]);
   const [model, setModel] = useState<DatasetModel | null>(null);
@@ -68,7 +78,11 @@ export default function ExplorePage() {
   const [filters, setFilters] = useState<FilterRow[]>([]);
   const [sortBy, setSortBy] = useState<string>(""); // "" | "dim" | "m:<fieldId>"
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-  const [limit, setLimit] = useState(500);
+  // 時間區間（取代筆數上限的治理手段）：預設近一年、最長一年
+  const [timeDimId, setTimeDimId] = useState<number | "">("");
+  const [timeStart, setTimeStart] = useState("");
+  const [timeEnd, setTimeEnd] = useState("");
+  const [timePreset, setTimePreset] = useState<string>("y1");
   const [chartType, setChartType] = useState<ChartType>("bar");
   const [result, setResult] = useState<RunResult | null>(null);
   const [spec, setSpec] = useState<ChartSpec | null>(null);
@@ -92,6 +106,10 @@ export default function ExplorePage() {
   const dimField: DatasetFieldDef | undefined = dimensions.find((f) => f.id === dimId);
   const dim2Field: DatasetFieldDef | undefined = dimensions.find((f) => f.id === dim2Id);
   const isTemporal = dimField?.dataType ? TEMPORAL_TYPES.has(dimField.dataType) : false;
+  const temporalDims = useMemo(
+    () => dimensions.filter((f) => f.dataType != null && TEMPORAL_TYPES.has(f.dataType)),
+    [dimensions],
+  );
   // 顏色維度只在「一個 X 維度＋恰好一個度量」時有意義（樞紐成多序列）
   const canUseDim2 = dimId !== "" && measureIds.length === 1 && dimensions.length > 1;
 
@@ -106,7 +124,6 @@ export default function ExplorePage() {
     setMeasureIds([]);
     setFilters([]);
     setSortBy("");
-    setLimit(500);
     if (!id) return;
     const res = await fetch(`/api/datasets/${id}`);
     const d = await res.json();
@@ -115,6 +132,28 @@ export default function ExplorePage() {
       return;
     }
     setModel(d.dataset);
+    // 時間窗初始化：掛在第一個時間維度上，預設近一年（伺服器端也會強制）
+    const firstTemporal = (d.dataset.fields as DatasetFieldDef[]).find(
+      (f) => f.kind === "dimension" && f.dataType != null && TEMPORAL_TYPES.has(f.dataType),
+    );
+    setTimeDimId(firstTemporal?.id ?? "");
+    setTimeEnd(isoDay(Date.now()));
+    setTimeStart(isoDay(Date.now() - 365 * DAY_MS));
+    setTimePreset("y1");
+  }
+
+  /** 設定時間區間並夾在一年內（起訖顛倒自動對調、超過一年自動壓回）。 */
+  function setRange(start: string, end: string, preset: string) {
+    let s = start;
+    let e = end;
+    if (s && e && s > e) [s, e] = [e, s];
+    if (s && e && Date.parse(e) - Date.parse(s) > 365 * DAY_MS) {
+      s = isoDay(Date.parse(e) - 365 * DAY_MS);
+      setMsg("時間區間最長一年，已自動調整起日");
+    }
+    setTimeStart(s);
+    setTimeEnd(e);
+    setTimePreset(preset);
   }
 
   function toggleMeasure(id: number) {
@@ -149,8 +188,14 @@ export default function ExplorePage() {
       measures: measureIds.map((fieldId) => ({ fieldId })),
       filters: [],
       sort,
-      limit,
     };
+    if (timeDimId !== "" && timeStart && timeEnd) {
+      query.filters.push({
+        fieldId: timeDimId,
+        op: "between",
+        values: [timeStart, `${timeEnd} 23:59:59`],
+      });
+    }
     for (const f of filters) {
       if (f.fieldId === 0) continue;
       const op = OPS.find((o) => o.value === f.op)!;
@@ -168,7 +213,7 @@ export default function ExplorePage() {
       query.filters.push({ fieldId: f.fieldId, op: f.op, values });
     }
     return query;
-  }, [model, dimId, dim2Id, measureIds, filters, isTemporal, bucket, sortBy, sortDir, limit]);
+  }, [model, dimId, dim2Id, measureIds, filters, isTemporal, bucket, sortBy, sortDir, timeDimId, timeStart, timeEnd]);
 
   const buildSpec = useCallback(
     (columns: string[], type: ChartType): ChartSpec | null => {
@@ -228,13 +273,30 @@ export default function ExplorePage() {
     const t = setTimeout(run, 400);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [model, dimId, dim2Id, bucket, measureIds, filters, sortBy, sortDir, limit]);
+  }, [model, dimId, dim2Id, bucket, measureIds, filters, sortBy, sortDir, timeDimId, timeStart, timeEnd]);
 
   // 切換圖表類型不重查——直接以現有結果重建圖表規格
   useEffect(() => {
     if (result) setSpec(buildSpec(result.columns, chartType));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chartType]);
+
+  // 維度值標籤：代碼→顯示名（資料模型上維護），只動顯示層、查詢仍用原始值
+  const labeledRows = useMemo(() => {
+    if (!result) return [];
+    const maps: [string, Record<string, string>][] = [];
+    if (dimField?.valueLabels) maps.push([dimField.name, dimField.valueLabels]);
+    if (dim2Field?.valueLabels) maps.push([dim2Field.name, dim2Field.valueLabels]);
+    if (maps.length === 0) return result.rows;
+    return result.rows.map((r) => {
+      const o: Record<string, unknown> = { ...r };
+      for (const [name, m] of maps) {
+        const raw = o[name];
+        if (raw != null && m[String(raw)] != null) o[name] = m[String(raw)];
+      }
+      return o;
+    });
+  }, [result, dimField, dim2Field]);
 
   // 顏色維度：把「X×顏色→值」的長表在前端樞紐成多序列（同 Tableau 的 Color）。
   // 系列取總量前 5 名（配色只驗證過 5 色，不循環重複），其餘略過並提示。
@@ -249,7 +311,7 @@ export default function ExplorePage() {
     const xs: string[] = [];
     const xSeen = new Set<string>();
     const totals = new Map<string, number>();
-    for (const r of result.rows) {
+    for (const r of labeledRows) {
       const x = String(r[d1] ?? "");
       if (!xSeen.has(x)) {
         xSeen.add(x);
@@ -262,7 +324,7 @@ export default function ExplorePage() {
     const series = seriesAll.slice(0, 5);
     const sSet = new Set(series);
     const byX = new Map<string, Record<string, unknown>>(xs.map((x) => [x, { [d1]: x }]));
-    for (const r of result.rows) {
+    for (const r of labeledRows) {
       const s = String(r[d2] ?? "");
       if (!sSet.has(s)) continue;
       byX.get(String(r[d1] ?? ""))![s] = Number(r[mName]) || 0;
@@ -278,11 +340,11 @@ export default function ExplorePage() {
       } as ChartSpec,
       dropped: seriesAll.length - series.length,
     };
-  }, [result, spec, model, dim2Id, dimField, dim2Field, measureIds, measures]);
+  }, [result, spec, model, dim2Id, dimField, dim2Field, measureIds, measures, labeledRows]);
 
   const displaySpec = pivot ? pivot.spec : spec;
   const displayColumns = pivot ? pivot.columns : result?.columns ?? [];
-  const displayRows = pivot ? pivot.rows : result?.rows ?? [];
+  const displayRows = pivot ? pivot.rows : labeledRows;
 
   async function pin() {
     if (!result || !displaySpec || !model) return;
@@ -486,21 +548,55 @@ export default function ExplorePage() {
                   )}
                 </div>
 
-                <div className="config-group">
-                  <span className="cg-label">筆數上限</span>
-                  <div className="seg-control inner">
-                    {[100, 500, 1000, 5000].map((n) => (
-                      <button
-                        key={n}
-                        type="button"
-                        className={`seg ${limit === n ? "active" : ""}`}
-                        onClick={() => setLimit(n)}
+                {temporalDims.length > 0 && (
+                  <div className="config-group">
+                    <span className="cg-label">時間區間</span>
+                    {temporalDims.length > 1 ? (
+                      <select
+                        className="kn-select"
+                        value={timeDimId}
+                        onChange={(e) => setTimeDimId(e.target.value === "" ? "" : Number(e.target.value))}
                       >
-                        {n.toLocaleString("en-US")}
-                      </button>
-                    ))}
+                        {temporalDims.map((f) => (
+                          <option key={f.id} value={f.id}>
+                            {f.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span style={{ fontSize: 12.5, color: "var(--text-muted)" }}>
+                        {temporalDims[0].name}
+                      </span>
+                    )}
+                    <div className="seg-control inner">
+                      {TIME_PRESETS.map((p) => (
+                        <button
+                          key={p.key}
+                          type="button"
+                          className={`seg ${timePreset === p.key ? "active" : ""}`}
+                          onClick={() => setRange(isoDay(Date.now() - p.days * DAY_MS), isoDay(Date.now()), p.key)}
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+                    <input
+                      type="date"
+                      className="kn-input"
+                      value={timeStart}
+                      onChange={(e) => setRange(e.target.value, timeEnd, "custom")}
+                      style={{ padding: "5px 8px" }}
+                    />
+                    <span style={{ color: "var(--text-dim)" }}>～</span>
+                    <input
+                      type="date"
+                      className="kn-input"
+                      value={timeEnd}
+                      onChange={(e) => setRange(timeStart, e.target.value, "custom")}
+                      style={{ padding: "5px 8px" }}
+                    />
                   </div>
-                </div>
+                )}
 
                 <div style={{ flex: 1 }} />
 
@@ -611,8 +707,8 @@ export default function ExplorePage() {
             <div className="chart-card preview">
               <div className="card-bar">
                 <span className="badge" style={{ color: "var(--text-dim)" }}>
-                  {result.rows.length} 列・確定性查詢（未經 AI）
-                  {result.rows.length >= limit && `・已達筆數上限 ${limit.toLocaleString("en-US")}`}
+                  {result.rows.length.toLocaleString("en-US")} 列・確定性查詢（未經 AI）
+                  {result.rows.length >= 50000 && "・已達安全筆數上限，請縮小時間區間"}
                   {pivot && pivot.dropped > 0 && `・顏色僅顯示前 5 個系列（略過 ${pivot.dropped} 個）`}
                 </span>
                 <span className="header-actions">

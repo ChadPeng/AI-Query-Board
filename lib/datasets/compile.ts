@@ -20,8 +20,10 @@ import { baseTable, validateDatasetModel } from "./validate";
  * Report SQL (ADR-0004) — and still passes the full guardrail belt at run time.
  */
 
-const DEFAULT_LIMIT = 500;
-const MAX_LIMIT = 5000;
+// 成本治理主力是時間窗（lib/datasets/timeWindow.ts：模型有時間維度時強制
+// ≤ 一年）；LIMIT 只剩「保護瀏覽器與 lambda」的安全上限，不再是使用者面板。
+const DEFAULT_LIMIT = 50000;
+const MAX_LIMIT = 50000;
 
 function ident(name: string): string {
   return "`" + name.replace(/`/g, "``") + "`";

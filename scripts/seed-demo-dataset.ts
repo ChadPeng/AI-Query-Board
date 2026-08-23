@@ -64,13 +64,13 @@ const DEMO: DatasetInput = {
     },
   ],
   fields: [
-    { kind: "dimension", name: "月份", description: "訂單建立月份", tableAlias: "o", columnName: "created_at", dataType: "datetime", aggregation: null, conditionSql: null, sortOrder: 0 },
-    { kind: "dimension", name: "使用者暱稱", description: null, tableAlias: "up", columnName: "nickname", dataType: "varchar", aggregation: null, conditionSql: null, sortOrder: 1 },
-    { kind: "dimension", name: "商店名稱", description: null, tableAlias: "s", columnName: "name", dataType: "varchar", aggregation: null, conditionSql: null, sortOrder: 2 },
-    { kind: "dimension", name: "訂單狀態", description: "0待付款 1排隊 2服務中 3洽客服 4完成 5取消 6退款", tableAlias: "o", columnName: "status", dataType: "int", aggregation: null, conditionSql: null, sortOrder: 3 },
-    { kind: "measure", name: "營收", description: "已完成訂單的金額加總", tableAlias: "o", columnName: "total", dataType: "decimal", aggregation: "sum", conditionSql: "o.status = 4", sortOrder: 4 },
-    { kind: "measure", name: "訂單數", description: null, tableAlias: "o", columnName: null, dataType: null, aggregation: "count", conditionSql: null, sortOrder: 5 },
-    { kind: "measure", name: "完成訂單數", description: null, tableAlias: "o", columnName: null, dataType: null, aggregation: "count", conditionSql: "o.status = 4", sortOrder: 6 },
+    { kind: "dimension", name: "月份", description: "訂單建立月份", tableAlias: "o", columnName: "created_at", dataType: "datetime", aggregation: null, conditionSql: null, valueLabels: null, sortOrder: 0 },
+    { kind: "dimension", name: "使用者暱稱", description: null, tableAlias: "up", columnName: "nickname", dataType: "varchar", aggregation: null, conditionSql: null, valueLabels: null, sortOrder: 1 },
+    { kind: "dimension", name: "商店名稱", description: null, tableAlias: "s", columnName: "name", dataType: "varchar", aggregation: null, conditionSql: null, valueLabels: null, sortOrder: 2 },
+    { kind: "dimension", name: "訂單狀態", description: "0待付款 1排隊 2服務中 3洽客服 4完成 5取消 6退款", tableAlias: "o", columnName: "status", dataType: "int", aggregation: null, conditionSql: null, valueLabels: { "0": "待付款", "1": "排隊中", "2": "服務中", "3": "洽客服", "4": "已完成", "5": "已取消", "6": "已退款" }, sortOrder: 3 },
+    { kind: "measure", name: "營收", description: "已完成訂單的金額加總", tableAlias: "o", columnName: "total", dataType: "decimal", aggregation: "sum", conditionSql: "o.status = 4", valueLabels: null, sortOrder: 4 },
+    { kind: "measure", name: "訂單數", description: null, tableAlias: "o", columnName: null, dataType: null, aggregation: "count", conditionSql: null, valueLabels: null, sortOrder: 5 },
+    { kind: "measure", name: "完成訂單數", description: null, tableAlias: "o", columnName: null, dataType: null, aggregation: "count", conditionSql: "o.status = 4", valueLabels: null, sortOrder: 6 },
   ],
 };
 

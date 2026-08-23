@@ -32,6 +32,7 @@ const revenue: DatasetFieldDef = {
   dataType: "decimal",
   aggregation: "sum",
   conditionSql: "o.status = 4",
+  valueLabels: null,
   sortOrder: 0,
 };
 const month: DatasetFieldDef = {
@@ -44,6 +45,7 @@ const month: DatasetFieldDef = {
   dataType: "datetime",
   aggregation: null,
   conditionSql: null,
+  valueLabels: null,
   sortOrder: 1,
 };
 

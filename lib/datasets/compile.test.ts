@@ -27,6 +27,7 @@ function field(over: Partial<DatasetFieldDef>): DatasetFieldDef {
     dataType: "datetime",
     aggregation: null,
     conditionSql: null,
+    valueLabels: null,
     sortOrder: 0,
     ...over,
   };
@@ -85,7 +86,7 @@ describe("compileExplorerQuery", () => {
     expect(sql).toContain("COUNT(*) AS `訂單數`");
     expect(sql).toContain("GROUP BY DATE_FORMAT(`o`.`created_at`, '%Y-%m')");
     expect(sql).toContain("ORDER BY DATE_FORMAT(`o`.`created_at`, '%Y-%m') ASC");
-    expect(sql).toContain("LIMIT 500");
+    expect(sql).toContain("LIMIT 50000");
     expect(values).toEqual([]);
     expect(columns.map((c) => c.key)).toEqual(["月份", "營收", "訂單數"]);
     // no dimension/filter touches up/u → joins pruned away
@@ -214,7 +215,7 @@ describe("compileExplorerQuery", () => {
       filters: [],
       limit: 999999,
     });
-    expect(sql).toContain("LIMIT 5000");
+    expect(sql).toContain("LIMIT 50000");
   });
 
   it("refuses to compile a model violating star invariants", () => {

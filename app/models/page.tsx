@@ -43,6 +43,22 @@ const AGG_LABEL: Record<MeasureAggregation, string> = {
 
 const qualified = (t: DatasetTableNode) => `${t.schema}.${t.table}`;
 
+/** 值標籤的文字表示互轉：「4=已完成, 5=已取消」↔ {"4":"已完成","5":"已取消"} */
+function labelsToText(m: Record<string, string> | null | undefined): string {
+  return m ? Object.entries(m).map(([k, v]) => `${k}=${v}`).join(", ") : "";
+}
+function textToLabels(s: string): Record<string, string> | null {
+  const out: Record<string, string> = {};
+  for (const part of s.split(/[,，、\n]/)) {
+    const i = part.indexOf("=");
+    if (i <= 0) continue;
+    const k = part.slice(0, i).trim();
+    const v = part.slice(i + 1).trim();
+    if (k && v) out[k] = v;
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 function makeAlias(table: string, taken: Set<string>): string {
   const base = table.slice(table.lastIndexOf(".") + 1).replace(/[^A-Za-z0-9_]/g, "_");
   if (!taken.has(base)) return base;
@@ -147,9 +163,13 @@ export default function ModelsPage() {
     return out;
   }, [relationships, draft.tables]);
 
+  // 值標籤的編輯中文字（依欄位名索引；失焦前保持原始輸入，避免打字被重排）
+  const [labelTexts, setLabelTexts] = useState<Record<string, string>>({});
+
   function startNew() {
     setEditingId(null);
     setDraft(EMPTY_DRAFT);
+    setLabelTexts({});
     setEditing(true);
     setError(null);
     setMsg(null);
@@ -172,7 +192,20 @@ export default function ModelsPage() {
       tables: d.dataset.tables,
       fields: d.dataset.fields,
     });
+    const texts: Record<string, string> = {};
+    for (const f of d.dataset.fields as DatasetFieldDef[]) {
+      if (f.kind === "dimension" && f.valueLabels) texts[f.name] = labelsToText(f.valueLabels);
+    }
+    setLabelTexts(texts);
     setEditing(true);
+  }
+
+  function setFieldLabels(name: string, text: string) {
+    setLabelTexts((m) => ({ ...m, [name]: text }));
+    setDraft((d) => ({
+      ...d,
+      fields: d.fields.map((f) => (f.name === name ? { ...f, valueLabels: textToLabels(text) } : f)),
+    }));
   }
 
   function setBase(table: string) {
@@ -256,6 +289,7 @@ export default function ModelsPage() {
           dataType: meta?.dataType ?? null,
           aggregation: null,
           conditionSql: null,
+          valueLabels: null,
           sortOrder: d.fields.length,
         },
       ],
@@ -281,6 +315,7 @@ export default function ModelsPage() {
           dataType: meta?.dataType ?? null,
           aggregation: meaAgg,
           conditionSql: meaCond.trim() || null,
+          valueLabels: null,
           sortOrder: d.fields.length,
         },
       ],
@@ -453,20 +488,37 @@ export default function ModelsPage() {
             <div className="kn-list">
               {draft.fields.map((f) => (
                 <div key={f.name} className="kn-row">
-                  <span className={`status-chip ${f.kind === "measure" ? "reviewed" : ""}`}>
-                    {f.kind === "measure" ? "度量" : "維度"}
-                  </span>
-                  <b>{f.name}</b>
-                  <span style={{ opacity: 0.8 }}>
-                    {f.kind === "measure"
-                      ? `${(f.aggregation ?? "").toUpperCase()}(${f.columnName ? `${f.tableAlias}.${f.columnName}` : "*"})` +
-                        (f.conditionSql ? `，條件：${f.conditionSql}` : "")
-                      : `${f.tableAlias}.${f.columnName}`}
-                  </span>
-                  <span style={{ flex: 1 }} />
-                  <button className="link-btn" onClick={() => removeField(f.name)}>
-                    移除
-                  </button>
+                  <div className="kn-main">
+                    <div className="kn-line">
+                      <span className={`status-chip ${f.kind === "measure" ? "reviewed" : ""}`}>
+                        {f.kind === "measure" ? "度量" : "維度"}
+                      </span>
+                      <b>{f.name}</b>
+                      <span style={{ opacity: 0.8 }}>
+                        {f.kind === "measure"
+                          ? `${(f.aggregation ?? "").toUpperCase()}(${f.columnName ? `${f.tableAlias}.${f.columnName}` : "*"})` +
+                            (f.conditionSql ? `，條件：${f.conditionSql}` : "")
+                          : `${f.tableAlias}.${f.columnName}`}
+                      </span>
+                    </div>
+                    {f.kind === "dimension" && (
+                      <div className="kn-line">
+                        <span className="kn-note" style={{ flexShrink: 0 }}>值標籤</span>
+                        <input
+                          className="kn-input"
+                          style={{ flex: 1, maxWidth: 560 }}
+                          placeholder="選填，如 4=已完成, 5=已取消（圖表/表格顯示用；查詢仍用原始值）"
+                          value={labelTexts[f.name] ?? ""}
+                          onChange={(e) => setFieldLabels(f.name, e.target.value)}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  <div className="kn-actions">
+                    <button className="link-btn" onClick={() => removeField(f.name)}>
+                      移除
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
