@@ -34,14 +34,25 @@ const BUCKETS: { value: DateBucket; label: string }[] = [
 ];
 
 const OPS: { value: FilterOp; label: string; values: 1 | 2 | "list" }[] = [
-  { value: "eq", label: "=", values: 1 },
-  { value: "neq", label: "≠", values: 1 },
-  { value: "gte", label: "≥", values: 1 },
-  { value: "lte", label: "≤", values: 1 },
+  { value: "eq", label: "是", values: 1 },
+  { value: "neq", label: "不是", values: 1 },
+  { value: "gte", label: "大於等於", values: 1 },
+  { value: "lte", label: "小於等於", values: 1 },
   { value: "between", label: "介於", values: 2 },
-  { value: "in", label: "屬於（逗號分隔）", values: "list" },
-  { value: "contains", label: "包含", values: 1 },
+  { value: "in", label: "是其中一個", values: "list" },
+  { value: "contains", label: "文字包含", values: 1 },
 ];
+/** 有值標籤的欄位只留得懂的比較方式（選項式，不用打代碼） */
+const LABELED_OPS: ReadonlySet<FilterOp> = new Set(["eq", "neq", "in"]);
+
+const AGG_SHORT: Record<string, string> = {
+  sum: "加總",
+  avg: "平均",
+  count: "筆數",
+  count_distinct: "去重筆數",
+  min: "最小",
+  max: "最大",
+};
 
 const CHART_TYPES: { value: ChartType; label: string }[] = [
   { value: "bar", label: "長條" },
@@ -108,6 +119,11 @@ export default function ExplorePage() {
   const isTemporal = dimField?.dataType ? TEMPORAL_TYPES.has(dimField.dataType) : false;
   const temporalDims = useMemo(
     () => dimensions.filter((f) => f.dataType != null && TEMPORAL_TYPES.has(f.dataType)),
+    [dimensions],
+  );
+  // 一般篩選不含時間欄位——時間由上方的「時間區間」統一控制，避免兩套混淆
+  const filterableDims = useMemo(
+    () => dimensions.filter((f) => !(f.dataType != null && TEMPORAL_TYPES.has(f.dataType))),
     [dimensions],
   );
   // 顏色維度只在「一個 X 維度＋恰好一個度量」時有意義（樞紐成多序列）
@@ -367,7 +383,7 @@ export default function ExplorePage() {
     <AppShell
       active="explore"
       title="探索"
-      subtitle="點選出圖・查詢由模型確定性編譯，不經 AI"
+      subtitle="選好分析角度與數字，圖表即時更新"
       bleed
       actions={
         <span className="pill-note">
@@ -375,7 +391,7 @@ export default function ExplorePage() {
             <path d="M8 1.5L14 4.5V8C14 11.5 11.5 13.9 8 14.5C4.5 13.9 2 11.5 2 8V4.5L8 1.5Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
             <path d="M5.5 8L7.5 10L10.5 6.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
-          零 LLM・唯讀查詢
+          只讀取資料・不會改動任何東西
         </span>
       }
     >
@@ -402,7 +418,7 @@ export default function ExplorePage() {
           {model && (
             <>
               <div className="fp-section">
-                <span className="fp-label">維度・點選設為 X 軸</span>
+                <span className="fp-label">分析角度（維度）・想按什麼分組</span>
                 <button
                   type="button"
                   className={`field-row ${dimId === "" ? "selected" : ""}`}
@@ -443,7 +459,7 @@ export default function ExplorePage() {
               </div>
 
               <div className="fp-section">
-                <span className="fp-label">度量・點選加入 Y 軸（可複選）</span>
+                <span className="fp-label">數字指標（度量）・想看什麼數字，可複選</span>
                 {measures.map((f) => (
                   <button
                     key={f.id}
@@ -452,7 +468,7 @@ export default function ExplorePage() {
                     onClick={() => toggleMeasure(f.id!)}
                   >
                     <span className="grow">{f.name}</span>
-                    <span className="dim-note">{f.aggregation?.toUpperCase()}</span>
+                    <span className="dim-note">{AGG_SHORT[f.aggregation ?? ""] ?? ""}</span>
                     {measureIds.includes(f.id!) && (
                       <svg width="13" height="13" viewBox="0 0 16 16" fill="none" style={{ flexShrink: 0 }}>
                         <path d="M2.5 8.5L6.5 12.5L13.5 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -475,14 +491,14 @@ export default function ExplorePage() {
               <div className="config-row">
                 {isTemporal && (
                   <div className="config-group">
-                    <span className="cg-label">時間粒度</span>
+                    <span className="cg-label">時間單位</span>
                     <div className="seg-control inner">
                       <button
                         type="button"
                         className={`seg ${bucket === "" ? "active" : ""}`}
                         onClick={() => setBucket("")}
                       >
-                        原始值
+                        不分段
                       </button>
                       {BUCKETS.map((b) => (
                         <button
@@ -630,86 +646,125 @@ export default function ExplorePage() {
               </div>
 
               <div className="config-group" style={{ alignItems: "flex-start", flexDirection: "column", gap: 8 }}>
-                <span className="cg-label">篩選</span>
-                {filters.map((f, i) => (
-                  <div key={i} style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                    <select
-                      className="kn-select"
-                      value={f.fieldId}
-                      onChange={(e) =>
-                        setFilters((fs) => fs.map((x, j) => (j === i ? { ...x, fieldId: Number(e.target.value) } : x)))
-                      }
-                    >
-                      <option value={0}>欄位…</option>
-                      {dimensions.map((d) => (
-                        <option key={d.id} value={d.id}>
-                          {d.name}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      className="kn-select"
-                      value={f.op}
-                      onChange={(e) =>
-                        setFilters((fs) => fs.map((x, j) => (j === i ? { ...x, op: e.target.value as FilterOp } : x)))
-                      }
-                    >
-                      {OPS.map((o) => (
-                        <option key={o.value} value={o.value}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </select>
-                    <input
-                      className="kn-input"
-                      style={{ maxWidth: 200 }}
-                      placeholder="值"
-                      value={f.v1}
-                      onChange={(e) =>
-                        setFilters((fs) => fs.map((x, j) => (j === i ? { ...x, v1: e.target.value } : x)))
-                      }
-                    />
-                    {f.op === "between" && (
-                      <input
-                        className="kn-input"
-                        style={{ maxWidth: 200 }}
-                        placeholder="到"
-                        value={f.v2}
-                        onChange={(e) =>
-                          setFilters((fs) => fs.map((x, j) => (j === i ? { ...x, v2: e.target.value } : x)))
-                        }
-                      />
-                    )}
-                    <button className="link-btn" onClick={() => setFilters((fs) => fs.filter((_, j) => j !== i))}>
-                      移除
-                    </button>
-                  </div>
-                ))}
+                <span className="cg-label">篩選條件</span>
+                {filters.map((f, i) => {
+                  const ff = dimensions.find((d) => d.id === f.fieldId);
+                  const labels = ff?.valueLabels ?? null;
+                  const ops = labels ? OPS.filter((o) => LABELED_OPS.has(o.value)) : OPS;
+                  const setF = (patch: Partial<FilterRow>) =>
+                    setFilters((fs) => fs.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+                  const picked = f.v1.split(",").map((s) => s.trim()).filter(Boolean);
+                  return (
+                    <div key={i} style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                      <select
+                        className="kn-select"
+                        value={f.fieldId}
+                        onChange={(e) => setF({ fieldId: Number(e.target.value), op: "eq", v1: "", v2: "" })}
+                      >
+                        <option value={0}>選擇欄位…</option>
+                        {filterableDims.map((d) => (
+                          <option key={d.id} value={d.id}>
+                            {d.name}
+                          </option>
+                        ))}
+                      </select>
+                      {f.fieldId !== 0 && (
+                        <select
+                          className="kn-select"
+                          value={f.op}
+                          onChange={(e) => setF({ op: e.target.value as FilterOp, v2: "" })}
+                        >
+                          {ops.map((o) => (
+                            <option key={o.value} value={o.value}>
+                              {o.label}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+
+                      {/* 有值標籤 → 直接選中文選項，不用打代碼 */}
+                      {f.fieldId !== 0 && labels && (f.op === "eq" || f.op === "neq") && (
+                        <select className="kn-select" value={f.v1} onChange={(e) => setF({ v1: e.target.value })}>
+                          <option value="">選擇…</option>
+                          {Object.entries(labels).map(([code, label]) => (
+                            <option key={code} value={code}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                      {f.fieldId !== 0 && labels && f.op === "in" && (
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          {Object.entries(labels).map(([code, label]) => {
+                            const on = picked.includes(code);
+                            return (
+                              <button
+                                key={code}
+                                type="button"
+                                className={`chip-toggle ${on ? "active" : ""}`}
+                                onClick={() =>
+                                  setF({ v1: (on ? picked.filter((c) => c !== code) : [...picked, code]).join(",") })
+                                }
+                              >
+                                {label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* 沒有值標籤 → 手動輸入 */}
+                      {f.fieldId !== 0 && !labels && (
+                        <>
+                          <input
+                            className="kn-input"
+                            style={{ maxWidth: 220 }}
+                            placeholder={f.op === "in" ? "多個值用逗號分隔" : "值"}
+                            value={f.v1}
+                            onChange={(e) => setF({ v1: e.target.value })}
+                          />
+                          {f.op === "between" && (
+                            <input
+                              className="kn-input"
+                              style={{ maxWidth: 220 }}
+                              placeholder="到"
+                              value={f.v2}
+                              onChange={(e) => setF({ v2: e.target.value })}
+                            />
+                          )}
+                        </>
+                      )}
+                      <button className="link-btn" onClick={() => setFilters((fs) => fs.filter((_, j) => j !== i))}>
+                        移除
+                      </button>
+                    </div>
+                  );
+                })}
                 <button
                   className="link-btn"
                   onClick={() => setFilters((fs) => [...fs, { fieldId: 0, op: "eq", v1: "", v2: "" }])}
                 >
-                  ＋ 新增篩選
+                  ＋ 加一個條件
                 </button>
               </div>
             </>
           )}
 
           {!model && !error && (
-            <div className="empty">先在左側選一個資料模型，點選維度與度量出圖</div>
+            <div className="empty">先在左側選一個資料模型</div>
           )}
 
           {model && !result && !error && (
-            <div className="empty">點選左側的維度或度量，圖會即時更新</div>
+            <div className="empty">點選左側的分析角度或數字指標，圖會即時更新</div>
           )}
 
           {result && displaySpec && (
             <div className="chart-card preview">
               <div className="card-bar">
                 <span className="badge" style={{ color: "var(--text-dim)" }}>
-                  {result.rows.length.toLocaleString("en-US")} 列・確定性查詢（未經 AI）
-                  {result.rows.length >= 50000 && "・已達安全筆數上限，請縮小時間區間"}
-                  {pivot && pivot.dropped > 0 && `・顏色僅顯示前 5 個系列（略過 ${pivot.dropped} 個）`}
+                  共 {result.rows.length.toLocaleString("en-US")} 筆資料
+                  {result.rows.length >= 50000 && "・資料量太大只顯示部分，請縮小時間區間"}
+                  {pivot && pivot.dropped > 0 && `・顏色僅顯示前 5 大類（其餘 ${pivot.dropped} 類未畫出）`}
                 </span>
                 <span className="header-actions">
                   <button type="button" className="pin" onClick={pin}>
@@ -722,7 +777,7 @@ export default function ExplorePage() {
               </div>
               <Chart ref={chartRef} spec={displaySpec} columns={displayColumns} rows={displayRows} />
               <details className="sql">
-                <summary>檢視編譯出的 SQL</summary>
+                <summary>技術細節（SQL 查詢語法，給工程師看的）</summary>
                 <pre>{result.sql}</pre>
               </details>
             </div>

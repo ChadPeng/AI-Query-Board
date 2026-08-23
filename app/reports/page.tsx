@@ -6,7 +6,7 @@ import { can, isRole } from "@/lib/auth/permissions";
 import type { ParamType, ReportParam } from "@/lib/reports/params";
 import { REPORT_CHART_TYPES, OUTPUT_MODES, validateChartSpec, type OutputMode } from "@/lib/reports/chart";
 import type { ChartSpec, ChartType } from "@/lib/llm/types";
-import { Chart, type ChartHandle } from "../components/Chart";
+import { Chart, formatCell, type ChartHandle } from "../components/Chart";
 import { AppShell } from "../components/Sidebar";
 
 interface ReportSummary {
@@ -55,11 +55,6 @@ const CHART_LABEL: Partial<Record<ChartType, string>> = {
   pie: "圓餅圖",
 };
 
-function cell(v: unknown): string {
-  if (v == null) return "";
-  if (typeof v === "object") return JSON.stringify(v);
-  return String(v);
-}
 
 function initRunValues(params: ReportParam[]): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -702,7 +697,7 @@ export default function ReportsPage() {
                       {result.rows.map((row, i) => (
                         <tr key={i}>
                           {result.columns.map((c) => (
-                            <td key={c}>{cell(row[c])}</td>
+                            <td key={c}>{formatCell(row[c])}</td>
                           ))}
                         </tr>
                       ))}

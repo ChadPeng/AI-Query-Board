@@ -326,7 +326,7 @@ export default function Home() {
               {promoteMsg && <div className="badge">{promoteMsg}</div>}
               <Chart spec={preview.spec} columns={preview.columns} rows={preview.rows} />
               <details className="sql">
-                <summary>檢視 SQL</summary>
+                <summary>技術細節（SQL 查詢語法，給工程師看的）</summary>
                 <pre>{preview.sql}</pre>
               </details>
             </div>

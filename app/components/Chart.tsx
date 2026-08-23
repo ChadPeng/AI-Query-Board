@@ -94,6 +94,22 @@ function buildOption(spec: ChartSpec, rows: Row[]): echarts.EChartsOption {
   };
 }
 
+/** 表格儲存格顯示：數字加千分位、DECIMAL 字串（如 "782198493.0000"）去掉
+ *  多餘小數；純整數字串（可能是編號/ID）原樣保留，避免編號被加逗號。 */
+export function formatCell(v: unknown): string {
+  if (v == null) return "";
+  if (typeof v === "number") {
+    return Number.isFinite(v) ? v.toLocaleString("en-US", { maximumFractionDigits: 2 }) : String(v);
+  }
+  if (typeof v === "object") return JSON.stringify(v);
+  const s = String(v);
+  if (/^-?\d+\.\d+$/.test(s)) {
+    const n = Number(s);
+    if (Number.isFinite(n)) return n.toLocaleString("en-US", { maximumFractionDigits: 2 });
+  }
+  return s;
+}
+
 function DataTable({ columns, rows }: { columns: string[]; rows: Row[] }) {
   return (
     <div className="table-wrap chart-canvas">
@@ -109,7 +125,7 @@ function DataTable({ columns, rows }: { columns: string[]; rows: Row[] }) {
           {rows.map((r, i) => (
             <tr key={i}>
               {columns.map((c) => (
-                <td key={c}>{String(r[c] ?? "")}</td>
+                <td key={c}>{formatCell(r[c])}</td>
               ))}
             </tr>
           ))}

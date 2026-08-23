@@ -1613,6 +1613,27 @@ a:hover {
   font-weight: 600;
 }
 
+.chip-toggle {
+  padding: 5px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: border-color 120ms ease, color 120ms ease, background-color 120ms ease;
+}
+.chip-toggle:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.chip-toggle.active {
+  background: var(--accent-weak);
+  border-color: rgba(57, 135, 229, 0.5);
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .pill-note {
   display: inline-flex;
   align-items: center;
