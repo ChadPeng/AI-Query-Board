@@ -11,6 +11,7 @@
     "setup:state": "node --env-file-if-exists=.env --import tsx scripts/setup-state-db.ts",
     "bootstrap:catalog": "node --env-file-if-exists=.env --import tsx scripts/bootstrap-catalog.ts",
     "bootstrap:semantics": "node --env-file-if-exists=.env --import tsx scripts/bootstrap-semantics.ts",
+    "seed:enum-semantics": "node --env-file-if-exists=.env --import tsx scripts/seed-enum-semantics.ts",
     "eval": "node --env-file-if-exists=.env --import tsx scripts/eval-questions.ts",
     "discover:relationships": "node --env-file-if-exists=.env --import tsx scripts/discover-relationships.ts"
   },
