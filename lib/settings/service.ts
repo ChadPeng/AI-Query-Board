@@ -38,8 +38,17 @@ async function resolveOne(def: SettingDef, map: Map<string, string>): Promise<Re
   let dbValue = map.has(def.key) ? (map.get(def.key) as string) : null;
   // Secret overrides are stored encrypted; decrypt before resolving so the app
   // sees the real credential. (listSettings re-masks before returning to the UI.)
+  // A value sealed under a different key (another environment's AUTH_SECRET, or
+  // a rotated secret) fails GCM authentication — treat it as "no override" and
+  // fall back to env/default instead of taking down every caller with a 500;
+  // the Super-Admin just re-saves the credential on this environment.
   if (def.secret && dbValue != null && isEncrypted(dbValue)) {
-    dbValue = decryptSecret(dbValue);
+    try {
+      dbValue = decryptSecret(dbValue);
+    } catch {
+      console.warn(`[settings] ${def.key} 的加密值無法以本環境金鑰解密，忽略此 DB 覆寫（請在本環境重新儲存）`);
+      dbValue = null;
+    }
   }
   const { value, source } = resolveSetting(def.type, dbValue, process.env[def.envVar], def.default);
   return { def, value, source, dbValue };
