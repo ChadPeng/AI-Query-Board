@@ -132,7 +132,13 @@ export function Sidebar({ active }: { active: NavKey }) {
           type="button"
           className="icon-btn"
           title="登出"
-          onClick={() => signOut({ callbackUrl: "/login" })}
+          onClick={async () => {
+            // 自架＋反向代理下，Auth.js 依 Host 推導的絕對網址可能是容器
+            // 內部位址（如 http://0.0.0.0:3000），跟著它跳轉會連不上。
+            // 改為只清 session、由前端用相對路徑導回登入頁。
+            await signOut({ redirect: false });
+            window.location.href = "/login";
+          }}
         >
           <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
             <path d="M6 14H3.5C2.94772 14 2.5 13.5523 2.5 13V3C2.5 2.44772 2.94772 2 3.5 2H6" stroke="currentColor" strokeWidth={S} strokeLinecap="round" />
